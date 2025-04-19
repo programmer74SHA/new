@@ -136,6 +136,7 @@ message ListScannersRequest {
     string name = 1 [json_name = "name"];
     string scan_type = 2 [json_name = "scan_type"];
     bool status = 3 [json_name = "status"];
+    bool has_status_filter = 4;
 }
 
 message ListScannersResponse {

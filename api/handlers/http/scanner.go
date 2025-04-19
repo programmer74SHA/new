@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 
@@ -135,7 +136,7 @@ type ListScannersBodyRequest struct {
 	Filter map[string]interface{} `json:"filter"`
 }
 
-// Updated ListScanners handler in api/handlers/http/scanner.go
+// ListScanners handler with improved status field handling
 func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		srv := svcGetter(c.UserContext())
@@ -179,6 +180,7 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 
 		if statusParam != "" {
 			hasStatusFilter = true
+			req.HasStatusFilter = true // Set the new field
 			if statusParam == "true" || statusParam == "1" {
 				statusValue = true
 				req.Status = true
@@ -196,7 +198,8 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 			"sort_order", sortOrder,
 			"name", scannerName,
 			"scan_type", scanType,
-			"status", statusParam)
+			"status", statusParam,
+			"has_status_filter", hasStatusFilter)
 
 		// Call the service method
 		response, totalCount, err := srv.ListScanners(
@@ -213,6 +216,20 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 
+		// Process scanner data to ensure status is included
+		var contents []map[string]interface{}
+		for _, scanner := range response.Scanners {
+			// Convert scanner to map to ensure all fields are preserved
+			scannerBytes, _ := json.Marshal(scanner)
+			var scannerMap map[string]interface{}
+			json.Unmarshal(scannerBytes, &scannerMap)
+
+			// Explicitly ensure status is included, even if false
+			scannerMap["status"] = scanner.Status
+
+			contents = append(contents, scannerMap)
+		}
+
 		// Add status to filter response if it was part of the request
 		filterObj := map[string]interface{}{
 			"name":      req.Name,
@@ -224,7 +241,7 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 
 		result := map[string]interface{}{
 			"data": map[string]interface{}{
-				"contents": response.Scanners,
+				"contents": contents, // Use our processed scanner data
 				"count":    totalCount,
 			},
 			"scanner": map[string]interface{}{
@@ -240,7 +257,7 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 			},
 		}
 
-		logger.Info("Returning scanner list", "count", len(response.Scanners), "total", totalCount)
+		logger.Info("Returning scanner list", "count", len(contents), "total", totalCount)
 		return c.JSON(result)
 	}
 }

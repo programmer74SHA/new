@@ -244,19 +244,9 @@ func (s *ScannerService) ListScanners(
 		ScanType: req.GetScanType(),
 	}
 
-	// Check if the status field was explicitly set in the request
-	// We need to determine if the field was provided by checking if it exists in the request
-	hasStatusFilter := false
-
-	// Get field descriptor for Status in the proto
-	statusDesc := req.ProtoReflect().Descriptor().Fields().ByName("status")
-	if statusDesc != nil {
-		hasStatusFilter = req.ProtoReflect().Has(statusDesc)
-	}
-
-	// Only set the Status filter if it was explicitly provided in the request
-	if hasStatusFilter {
-		status := req.Status
+	// Use the has_status_filter field directly
+	if req.GetHasStatusFilter() {
+		status := req.GetStatus()
 		filter.Status = &status
 		log.Printf("Service: Status filter explicitly provided: %v", status)
 	} else {
@@ -358,9 +348,6 @@ func (s *ScannerService) CancelScanJob(ctx context.Context, req *pb.CancelScanJo
 }
 
 // Helper function to map domain scanner to protobuf scanner
-// Update to mapDomainToProto function in api/service/scanner.go
-
-// Helper function to map domain scanner to protobuf scanner
 func mapDomainToProto(scanner *domain.ScannerDomain) *pb.Scanner {
 	if scanner == nil {
 		return nil
@@ -370,7 +357,7 @@ func mapDomainToProto(scanner *domain.ScannerDomain) *pb.Scanner {
 		Id:                 strconv.FormatInt(scanner.ID, 10),
 		Name:               scanner.Name,
 		ScanType:           scanner.ScanType,
-		Status:             scanner.Status, // Ensure this is included
+		Status:             scanner.Status, // This line is crucial - ensure it's always set
 		UserId:             scanner.UserID,
 		CreatedAt:          scanner.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt:          scanner.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -387,18 +374,18 @@ func mapDomainToProto(scanner *domain.ScannerDomain) *pb.Scanner {
 		AuthenticationType: scanner.AuthenticationType,
 	}
 
-	// Add schedule if available
-	if scanner.Schedule != nil {
-		pbScanner.Schedule = &pb.Schedule{
-			FrequencyValue: scanner.Schedule.FrequencyValue,
-			FrequencyUnit:  scanner.Schedule.FrequencyUnit,
-			Month:          scanner.Schedule.Month,
-			Week:           scanner.Schedule.Week,
-			Day:            scanner.Schedule.Day,
-			Hour:           scanner.Schedule.Hour,
-			Minute:         scanner.Schedule.Minute,
-		}
-	}
+	// // Add schedule if available
+	// if scanner.Schedule != nil {
+	// 	pbScanner.Schedule = &pb.Schedule{
+	// 		FrequencyValue: scanner.Schedule.FrequencyValue,
+	// 		FrequencyUnit:  scanner.Schedule.FrequencyUnit,
+	// 		Month:          scanner.Schedule.Month,
+	// 		Week:           scanner.Schedule.Week,
+	// 		Day:            scanner.Schedule.Day,
+	// 		Hour:           scanner.Schedule.Hour,
+	// 		Minute:         scanner.Schedule.Minute,
+	// 	}
+	// }
 
 	return pbScanner
 }
