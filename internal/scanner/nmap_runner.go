@@ -169,12 +169,12 @@ func (r *NmapRunner) processNmapResults(ctx context.Context, nmapRun NmapRun, sc
 			hostname = host.Hostnames.Hostname[0].Name
 		}
 
-		// Create new asset
+		// Create new asset with IP in the IPs array
 		asset := assetDomain.AssetDomain{
 			ID:          uuid.New(),
 			Name:        hostname,
 			Hostname:    hostname,
-			IP:          ipAddress,
+			IPs:         []string{ipAddress}, // Use IPs array instead of single IP
 			Type:        "Unknown",
 			Description: fmt.Sprintf("Discovered by Nmap scan (Job ID: %d)", scanJobID),
 			CreatedAt:   time.Now(),

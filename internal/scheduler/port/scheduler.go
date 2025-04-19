@@ -29,6 +29,9 @@ type Repo interface {
 
 	// UpdateScheduleNextRun updates the next run time for a schedule
 	UpdateScheduleNextRun(ctx context.Context, scheduleID int64, nextRunTime string) error
+
+	// GetScanJobDetails retrieves details for a specific scan job
+	GetScanJobDetails(ctx context.Context, jobID int64) (*domain.ScanJob, error)
 }
 
 // Service defines the interface for scheduler operations

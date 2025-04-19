@@ -29,7 +29,8 @@ type app struct {
 	schedulerService  schedulerPort.Service
 	schedulerRunner   *scheduler.SchedulerRunner
 	nmapScanner       *scanner.NmapRunner
-	apiScannerService *service.ScannerService // Add this field for the API service layer
+	vcenterScanner    *scanner.VCenterRunner
+	apiScannerService *service.ScannerService
 }
 
 func (a *app) AssetService() assetPort.Service {
@@ -87,19 +88,21 @@ func NewApp(cfg config.Config) (AppContainer, error) {
 	assetRepo := storage.NewAssetRepo(a.db)
 	a.assetService = asset.NewAssetService(nil, assetRepo)
 
-	// Initialize Nmap scanner - use the asset repo directly
+	// Initialize scanners - use the asset repo directly
 	a.nmapScanner = scanner.NewNmapRunner(assetRepo)
+	a.vcenterScanner = scanner.NewVCenterRunner(assetRepo)
 
 	// Initialize scanner service (internal domain layer)
 	scannerRepo := storage.NewScannerRepo(a.db)
 	a.scannerService = scanner.NewScannerService(scannerRepo)
 
-	// Initialize scheduler service with nmap scanner
+	// Initialize scheduler service with all scanners
 	schedulerRepo := storage.NewSchedulerRepo(a.db)
 	a.schedulerService = scheduler.NewSchedulerService(
 		schedulerRepo,
 		a.scannerService,
 		a.nmapScanner,
+		a.vcenterScanner,
 	)
 
 	// Initialize API scanner service (external API layer)
@@ -144,13 +147,15 @@ func (a *app) schedulerServiceWithDB(db *gorm.DB) schedulerPort.Service {
 	// Get the asset repo for the given DB context
 	assetRepo := storage.NewAssetRepo(db)
 
-	// Create a Nmap scanner for this context
+	// Create scanners for this context
 	nmapScanner := scanner.NewNmapRunner(assetRepo)
+	vcenterScanner := scanner.NewVCenterRunner(assetRepo)
 
 	return scheduler.NewSchedulerService(
 		storage.NewSchedulerRepo(db),
 		scannerService,
 		nmapScanner,
+		vcenterScanner,
 	)
 }
 

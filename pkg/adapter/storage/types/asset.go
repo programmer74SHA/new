@@ -2,12 +2,23 @@ package types
 
 import "time"
 
+// AssetIP represents an IP address associated with an asset
+type AssetIP struct {
+	ID        string     `gorm:"column:id;size:50;primaryKey"`
+	AssetID   string     `gorm:"column:asset_id;not null;index"`
+	IPAddress string     `gorm:"column:ip_address;size:45;not null;uniqueIndex"`
+	CreatedAt time.Time  `gorm:"column:created_at;type:datetime;default:CURRENT_TIMESTAMP"`
+	UpdatedAt *time.Time `gorm:"column:updated_at;type:datetime"`
+	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime"`
+
+	Asset Asset `gorm:"foreignKey:AssetID"`
+}
+
 type Asset struct {
 	ID          string     `gorm:"column:id;size:50;primaryKey"`
 	Name        *string    `gorm:"column:name;size:50"`
 	Domain      *string    `gorm:"column:domain;size:50"`
 	Hostname    string     `gorm:"column:hostname;size:255;not null"`
-	IPAddress   string     `gorm:"column:ip_address;size:45;not null;uniqueIndex"`
 	MACAddress  *string    `gorm:"column:mac_address;size:17"`
 	OSName      *string    `gorm:"column:os_name;size:100"`
 	OSVersion   *string    `gorm:"column:os_version;size:50"`
@@ -17,8 +28,9 @@ type Asset struct {
 	UpdatedAt   *time.Time `gorm:"column:updated_at;type:datetime"`
 	DeletedAt   *time.Time `gorm:"column:deleted_at;type:datetime"`
 
-	Ports         []Port         `gorm:"foreignKey:AssetID"`
-	VMwareVMs     []VMwareVM     `gorm:"foreignKey:AssetID"`
+	AssetIPs     []AssetIP     `gorm:"foreignKey:AssetID"` // Added relationship
+	Ports        []Port        `gorm:"foreignKey:AssetID"`
+	VMwareVMs    []VMwareVM    `gorm:"foreignKey:AssetID"`
 	AssetScanJobs []AssetScanJob `gorm:"foreignKey:AssetID"`
 }
 

@@ -32,9 +32,11 @@ func NewMysqlConnection(cfg DBConnOptions) (*gorm.DB, error) {
 }
 
 func GormMigrations(db *gorm.DB) {
+	// Run schema AutoMigrations
 	err := db.AutoMigrate(
 		&types.User{},
 		&types.Asset{},
+		&types.AssetIP{}, // Add AssetIP model first
 		&types.Scanner{},
 		&types.ScanJob{},
 		&types.Port{},
@@ -51,5 +53,10 @@ func GormMigrations(db *gorm.DB) {
 	)
 	if err != nil {
 		log.Fatalf("failed to migrate models: %v", err)
+	}
+
+	// Run additional data migrations
+	if err := AddMigrations(db); err != nil {
+		log.Fatalf("failed to run additional migrations: %v", err)
 	}
 }

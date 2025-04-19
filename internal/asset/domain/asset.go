@@ -16,10 +16,19 @@ type AssetDomain struct {
 	OSName      string
 	OSVersion   string
 	Type        string
-	IP          string
+	IPs         []string
 	Description string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// AssetIP represents an IP address associated with an asset
+type AssetIP struct {
+	ID        uuid.UUID
+	AssetID   AssetUUID
+	IPAddress string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type AssetFilters struct {
@@ -29,7 +38,7 @@ type AssetFilters struct {
 	OSName    string
 	OSVersion string
 	Type      string
-	IP        string
+	IP        string // Keep for backward compatibility
 }
 
 func AssetUUIDFromString(s string) (uuid.UUID, error) {

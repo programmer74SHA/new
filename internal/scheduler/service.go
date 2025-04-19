@@ -26,28 +26,41 @@ var (
 	ErrScanJobNotFound      = errors.New("scan job not found")
 )
 
-// Define the NmapScanner interface for executing scans
+// Define the scanner interfaces
 type NmapScanner interface {
 	ExecuteNmapScan(ctx context.Context, scanner scannerDomain.ScannerDomain, scanJobID int64) error
 	CancelScan(jobID int64) bool
 	StatusScan(jobID int64) bool
 }
 
-// Enhanced schedulerService with Nmap scanner
+type VCenterScanner interface {
+	ExecuteVCenterScan(ctx context.Context, scanner scannerDomain.ScannerDomain, scanJobID int64) error
+	CancelScan(jobID int64) bool
+	StatusScan(jobID int64) bool
+}
+
+// Enhanced schedulerService with multiple scanners
 type schedulerService struct {
 	repo           port.Repo
 	scannerService scannerPort.Service
 	nmapScanner    NmapScanner
+	vcenterScanner VCenterScanner
 	cancelledJobs  map[int64]bool // Track jobs that have been cancelled
 	mutex          sync.Mutex     // Mutex to protect concurrent access to cancelledJobs
 }
 
-// NewSchedulerService creates a new scheduler service with Nmap scanner
-func NewSchedulerService(repo port.Repo, scannerService scannerPort.Service, nmapScanner NmapScanner) port.Service {
+// NewSchedulerService creates a new scheduler service with scanners
+func NewSchedulerService(
+	repo port.Repo,
+	scannerService scannerPort.Service,
+	nmapScanner NmapScanner,
+	vcenterScanner VCenterScanner,
+) port.Service {
 	return &schedulerService{
 		repo:           repo,
 		scannerService: scannerService,
 		nmapScanner:    nmapScanner,
+		vcenterScanner: vcenterScanner,
 		cancelledJobs:  make(map[int64]bool),
 	}
 }
@@ -109,11 +122,14 @@ func (s *schedulerService) ExecuteScheduledScan(ctx context.Context, scheduledSc
 			log.Printf("Scheduler Service: Failed to update scan job status: %v", err)
 		}
 
-		// Execute Nmap scan for NMAP scanner type
+		// Execute scan based on scanner type
 		var scanErr error
-		if scanner.ScanType == scannerDomain.ScannerTypeNmap {
+		switch scanner.ScanType {
+		case scannerDomain.ScannerTypeNmap:
 			scanErr = s.nmapScanner.ExecuteNmapScan(bgCtx, scanner, jobID)
-		} else {
+		case scannerDomain.ScannerTypeVCenter:
+			scanErr = s.vcenterScanner.ExecuteVCenterScan(bgCtx, scanner, jobID)
+		default:
 			scanErr = fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
 		}
 
@@ -175,14 +191,25 @@ func (s *schedulerService) CalculateNextRunTime(schedule scannerDomain.Schedule)
 func (s *schedulerService) CancelScanJob(ctx context.Context, jobID int64) error {
 	log.Printf("Scheduler Service: Cancelling scan job ID: %d", jobID)
 
-	// Check if the job is running in the nmap scanner
-	if !s.nmapScanner.StatusScan(jobID) {
-		log.Printf("Scheduler Service: Scan job ID %d is not currently running", jobID)
-		return ErrScanJobNotRunning
+	// Get job details to determine scanner type
+	job, err := s.repo.GetScanJobDetails(ctx, jobID)
+	if err != nil {
+		log.Printf("Scheduler Service: Error getting job details: %v", err)
+		return err
 	}
 
-	// Attempt to cancel the scan
-	cancelled := s.nmapScanner.CancelScan(jobID)
+	// Determine scanner type and use appropriate cancel method
+	var cancelled bool
+	switch job.Type {
+	case string(scannerDomain.ScannerTypeNmap):
+		cancelled = s.nmapScanner.CancelScan(jobID)
+	case string(scannerDomain.ScannerTypeVCenter):
+		cancelled = s.vcenterScanner.CancelScan(jobID)
+	default:
+		log.Printf("Scheduler Service: Unknown scanner type %s for job ID %d", job.Type, jobID)
+		return fmt.Errorf("unknown scanner type: %s", job.Type)
+	}
+
 	if !cancelled {
 		log.Printf("Scheduler Service: Failed to cancel scan job ID: %d", jobID)
 		return ErrScanJobOnCancel
@@ -194,7 +221,7 @@ func (s *schedulerService) CancelScanJob(ctx context.Context, jobID int64) error
 	s.mutex.Unlock()
 
 	// Update job status to cancelled (using the new Cancelled status)
-	err := s.repo.CompleteScanJob(ctx, jobID, domain.ScheduleStatusCancelled)
+	err = s.repo.CompleteScanJob(ctx, jobID, domain.ScheduleStatusCancelled)
 	if err != nil {
 		log.Printf("Scheduler Service: Error updating job status after cancellation: %v", err)
 		return err
@@ -204,7 +231,7 @@ func (s *schedulerService) CancelScanJob(ctx context.Context, jobID int64) error
 	return nil
 }
 
-// CreateScanJob creates a new scan job record (implement as public)
+// CreateScanJob creates a new scan job record
 func (s *schedulerService) CreateScanJob(ctx context.Context, job domain.ScanJob) (int64, error) {
 	log.Printf("Scheduler Service: Creating scan job for scanner ID: %d", job.ScannerID)
 
@@ -229,10 +256,12 @@ func (s *schedulerService) ExecuteManualScan(ctx context.Context, scanner scanne
 	}
 
 	// Execute scan based on scanner type
-	if scanner.ScanType == scannerDomain.ScannerTypeNmap {
-		// Execute Nmap scan
+	switch scanner.ScanType {
+	case scannerDomain.ScannerTypeNmap:
 		return s.nmapScanner.ExecuteNmapScan(ctx, scanner, jobID)
+	case scannerDomain.ScannerTypeVCenter:
+		return s.vcenterScanner.ExecuteVCenterScan(ctx, scanner, jobID)
+	default:
+		return fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
 	}
-
-	return fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
 }

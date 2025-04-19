@@ -1,10 +1,17 @@
 package domain
 
 import (
+	"errors"
 	"log"
 	"time"
 
 	scannerDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/domain"
+)
+
+// Error definitions
+var (
+	ErrScanJobNotFound   = errors.New("scan job not found")
+	ErrScanJobNotRunning = errors.New("scan job is not running")
 )
 
 // ScheduleStatus represents the current status of a scheduled job

@@ -585,3 +585,40 @@ func (r *schedulerRepo) UpdateScheduleNextRun(ctx context.Context, scheduleID in
 	log.Printf("Scheduler Repository: Successfully updated next run time for schedule ID: %d", scheduleID)
 	return nil
 }
+
+// Add the GetScanJobDetails method to support getting job type for cancellation
+func (r *schedulerRepo) GetScanJobDetails(ctx context.Context, jobID int64) (*domain.ScanJob, error) {
+	log.Printf("Scheduler Repository: Getting details for scan job ID: %d", jobID)
+
+	// Get the DB from context or use the repo's DB
+	db := appCtx.GetDB(ctx)
+	if db == nil {
+		db = r.db
+	}
+
+	var job types.ScanJob
+	if err := db.Table("scan_jobs").Where("id = ?", jobID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("Scheduler Repository: Job not found for ID: %d", jobID)
+			return nil, errors.New("scan job not found")
+		}
+		return nil, err
+	}
+
+	// Convert to domain model
+	domainJob := &domain.ScanJob{
+		ID:        job.ID,
+		ScannerID: job.ScannerID,
+		Name:      job.Name,
+		Type:      job.Type,
+		Status:    domain.ScheduleStatus(job.Status),
+		StartTime: job.StartTime,
+		Progress:  *job.Progress,
+	}
+
+	if job.EndTime != nil {
+		domainJob.EndTime = job.EndTime
+	}
+
+	return domainJob, nil
+}
