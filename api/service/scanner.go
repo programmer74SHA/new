@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 	"strconv"
 
 	"gitlab.apk-group.net/siem/backend/asset-discovery/api/pb"
@@ -228,6 +229,7 @@ func (s *ScannerService) DeleteScanners(ctx context.Context, req *pb.DeleteScann
 	}, nil
 }
 
+// Updated ListScanners function in api/service/scanner.go
 func (s *ScannerService) ListScanners(
 	ctx context.Context,
 	req *pb.ListScannersRequest,
@@ -242,11 +244,24 @@ func (s *ScannerService) ListScanners(
 		ScanType: req.GetScanType(),
 	}
 
-	// Always set the Status filter regardless of its value
-	// This ensures filters work for both true and false values
-	if req != nil {
-		Status := req.Status
-		filter.Status = &Status
+	// Check if the status field was explicitly set in the request
+	// We need to determine if the field was provided by checking if it exists in the request
+	hasStatusFilter := false
+
+	// Get field descriptor for Status in the proto
+	statusDesc := req.ProtoReflect().Descriptor().Fields().ByName("status")
+	if statusDesc != nil {
+		hasStatusFilter = req.ProtoReflect().Has(statusDesc)
+	}
+
+	// Only set the Status filter if it was explicitly provided in the request
+	if hasStatusFilter {
+		status := req.Status
+		filter.Status = &status
+		log.Printf("Service: Status filter explicitly provided: %v", status)
+	} else {
+		log.Printf("Service: No status filter provided, will fetch all scanners")
+		// Don't set filter.Status, which means no status filtering
 	}
 
 	// Create pagination options

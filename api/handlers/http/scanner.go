@@ -141,33 +141,52 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 		srv := svcGetter(c.UserContext())
 		logger := context.GetLogger(c.UserContext())
 
-		// Extract pagination parameters from query params
+		// Extract pagination parameters
 		limit := c.QueryInt("limit", 0)
 		page := c.QueryInt("page", 0)
 		sortField := c.Query("sort_field", "name")
 		sortOrder := c.Query("sort_order", "asc")
 
-		// Support for frontend grid component using array-style query params
-		// Check if there are sort[0][field] and sort[0][order] parameters
 		if sortFromArr := c.Query("sort[0][field]"); sortFromArr != "" {
 			sortField = sortFromArr
 			sortOrder = c.Query("sort[0][order]", "asc")
 		}
 
-		// Get name filter from standard and bracket notation
+		// Get name filter
 		scannerName := c.Query("name", "")
 		if scannerName == "" {
 			scannerName = c.Query("filter[name]", "")
 		}
 
-		// Get scan_type filter from standard and bracket notation
+		// Get scan_type filter
 		scanType := c.Query("type", "")
 		if scanType == "" {
 			scanType = c.Query("filter[scan_type]", "")
 			if scanType == "" {
-				// Also try scan_type in bracket notation
 				scanType = c.Query("filter[type]", "")
 			}
+		}
+
+		// Handle boolean status filter
+		statusParam := c.Query("status", c.Query("filter[status]", ""))
+		var statusValue bool
+		var hasStatusFilter bool
+
+		req := &pb.ListScannersRequest{
+			Name:     scannerName,
+			ScanType: scanType,
+		}
+
+		if statusParam != "" {
+			hasStatusFilter = true
+			if statusParam == "true" || statusParam == "1" {
+				statusValue = true
+				req.Status = true
+			} else if statusParam == "false" || statusParam == "0" {
+				statusValue = false
+				req.Status = false
+			}
+			logger.Info("Setting status filter from URL", "status", statusValue)
 		}
 
 		logger.Info("Parsing filter parameters from URL query",
@@ -176,41 +195,10 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 			"sort_field", sortField,
 			"sort_order", sortOrder,
 			"name", scannerName,
-			"scan_type", scanType)
+			"scan_type", scanType,
+			"status", statusParam)
 
-		// Build filter with the extracted values
-		req := &pb.ListScannersRequest{
-			Name:     scannerName,
-			ScanType: scanType,
-		}
-
-		// Handle boolean status filter
-		StatusParam := c.Query("status", c.Query("filter[status]", ""))
-		var statusValue bool
-		var hasStatusFilter bool
-
-		if StatusParam != "" {
-			hasStatusFilter = true
-			// Convert string to boolean
-			if StatusParam == "true" || StatusParam == "1" {
-				statusValue = true
-				req.Status = true
-			} else if StatusParam == "false" || StatusParam == "0" {
-				statusValue = false
-				req.Status = false
-			}
-			// Log the status filter
-			logger.Info("Setting status filter from URL", "status", statusValue)
-		}
-
-		// Log the complete request
-		logger.Info("Filter request",
-			"name", req.Name,
-			"scan_type", req.ScanType,
-			"status", req.Status,
-			"has_status_filter", hasStatusFilter)
-
-		// Call the enhanced service method
+		// Call the service method
 		response, totalCount, err := srv.ListScanners(
 			c.UserContext(),
 			req,
@@ -220,20 +208,16 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 			sortOrder,
 		)
 
-		log.Printf("responseeeeeeeeee , %v", response)
-
 		if err != nil {
 			logger.Error("Failed to list scanners", "error", err)
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 
-		// Format the response to match the desired structure
+		// Add status to filter response if it was part of the request
 		filterObj := map[string]interface{}{
 			"name":      req.Name,
 			"scan_type": req.ScanType,
 		}
-
-		// Only include status in response if it was in the request
 		if hasStatusFilter {
 			filterObj["status"] = statusValue
 		}

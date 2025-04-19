@@ -200,8 +200,6 @@ func (r *scannerRepo) DeleteBatch(ctx context.Context, scannerIDs []int64) (int,
 	return int(result.RowsAffected), nil
 }
 
-// Updated in pkg/adapter/storage/scanner_repo.go
-
 func (r *scannerRepo) List(ctx context.Context, filter domain.ScannerFilter, pagination domain.Pagination) ([]domain.ScannerDomain, int, error) {
 	log.Printf("Repository: Listing scanners with filter: %+v, pagination: %+v", filter, pagination)
 
@@ -217,8 +215,12 @@ func (r *scannerRepo) List(ctx context.Context, filter domain.ScannerFilter, pag
 		queryBuilder.AddFilter("scan_type = ?", filter.ScanType)
 	}
 
+	// Only apply status filter if it's explicitly provided
 	if filter.Status != nil {
 		queryBuilder.AddFilter("status = ?", *filter.Status)
+		log.Printf("Repository: Applying status filter: %v", *filter.Status)
+	} else {
+		log.Printf("Repository: No status filter provided, fetching all scanners regardless of status")
 	}
 
 	// Get total count before applying pagination
