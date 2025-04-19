@@ -72,7 +72,6 @@ func registerScannerAPI(appContainer app.AppContainer, router fiber.Router) {
 	router.Post("/batch-delete", setTransaction(appContainer.DB()), DeleteScanners(scannerSvcGetter))
 	router.Post("/batch-enabled", setTransaction(appContainer.DB()), BatchUpdateScannersEnabled(scannerSvcGetter))
 
-	// Add the new scan now endpoint
 	router.Post("/:id/run", RunScanNow(scannerSvcGetter))
 }
 

@@ -52,9 +52,4 @@ func GormMigrations(db *gorm.DB) {
 	if err != nil {
 		log.Fatalf("failed to migrate models: %v", err)
 	}
-
-	// Apply additional migrations
-	if err := AddMigrations(db); err != nil {
-		log.Fatalf("failed to apply additional migrations: %v", err)
-	}
 }
