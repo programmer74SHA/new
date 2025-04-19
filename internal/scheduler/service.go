@@ -53,7 +53,6 @@ func NewSchedulerService(repo port.Repo, scannerService scannerPort.Service, nma
 }
 
 // ExecuteScheduledScan runs a scheduled scan
-// ExecuteScheduledScan runs a scheduled scan
 func (s *schedulerService) ExecuteScheduledScan(ctx context.Context, scheduledScan domain.ScheduledScan) error {
 	log.Printf("Scheduler Service: Executing scheduled scan for scanner ID: %d with details: %+v",
 		scheduledScan.Scanner.ID, scheduledScan.Scanner)
@@ -203,4 +202,37 @@ func (s *schedulerService) CancelScanJob(ctx context.Context, jobID int64) error
 
 	log.Printf("Scheduler Service: Successfully cancelled scan job ID: %d", jobID)
 	return nil
+}
+
+// CreateScanJob creates a new scan job record (implement as public)
+func (s *schedulerService) CreateScanJob(ctx context.Context, job domain.ScanJob) (int64, error) {
+	log.Printf("Scheduler Service: Creating scan job for scanner ID: %d", job.ScannerID)
+
+	// Create a new scan job record via the repository
+	jobID, err := s.repo.CreateScanJob(ctx, job)
+	if err != nil {
+		log.Printf("Scheduler Service: Failed to create scan job: %v", err)
+		return 0, ErrScanJobOnCreate
+	}
+
+	log.Printf("Scheduler Service: Created scan job with ID: %d", jobID)
+	return jobID, nil
+}
+
+// ExecuteManualScan runs a scan manually for the given scanner
+func (s *schedulerService) ExecuteManualScan(ctx context.Context, scanner scannerDomain.ScannerDomain, jobID int64) error {
+	log.Printf("Scheduler Service: Executing manual scan for scanner ID: %d", scanner.ID)
+
+	// Check if the scanner is valid
+	if scanner.ID == 0 {
+		return errors.New("invalid scanner ID")
+	}
+
+	// Execute scan based on scanner type
+	if scanner.ScanType == scannerDomain.ScannerTypeNmap {
+		// Execute Nmap scan
+		return s.nmapScanner.ExecuteNmapScan(ctx, scanner, jobID)
+	}
+
+	return fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
 }

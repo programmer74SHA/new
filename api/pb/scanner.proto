@@ -166,3 +166,14 @@ message CancelScanJobResponse {
     bool success = 1 [json_name = "success"];
     string error_message = 2 [json_name = "error_message"];
 }
+
+// Messages for running a scan immediately
+message RunScanNowRequest {
+    string scanner_id = 1 [json_name = "scanner_id"]; // The ID of the scanner to run
+}
+
+message RunScanNowResponse {
+    bool success = 1 [json_name = "success"];
+    string error_message = 2 [json_name = "error_message"];
+    int64 job_id = 3 [json_name = "job_id"]; // The ID of the created scan job
+}

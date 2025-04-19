@@ -279,3 +279,39 @@ func BatchUpdateScannersEnabled(svcGetter ServiceGetter[*service.ScannerService]
 		return c.Status(fiber.StatusNoContent).Send(nil)
 	}
 }
+
+// RunScanNow handles HTTP requests to immediately execute a scan for a scanner
+func RunScanNow(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		srv := svcGetter(c.UserContext())
+
+		// Get scanner ID from URL parameter
+		id := c.Params("id")
+		if id == "" {
+			log.Printf("Run scan now: Scanner ID is empty")
+			return fiber.ErrBadRequest
+		}
+
+		log.Printf("Attempting to run immediate scan for scanner with ID: %s", id)
+
+		// Create the request
+		req := &pb.RunScanNowRequest{
+			ScannerId: id,
+		}
+
+		// Call the service to execute the scan
+		response, err := srv.RunScanNow(c.UserContext(), req)
+		if err != nil {
+			if errors.Is(err, service.ErrScannerNotFound) {
+				return fiber.ErrNotFound
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		}
+
+		if !response.Success {
+			return fiber.NewError(fiber.StatusInternalServerError, response.ErrorMessage)
+		}
+
+		return c.Status(fiber.StatusOK).JSON(response)
+	}
+}

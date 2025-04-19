@@ -26,7 +26,6 @@ func NewSchedulerRepo(db *gorm.DB) port.Repo {
 }
 
 // GetDueSchedules retrieves all scheduled scans that are due to run
-// GetDueSchedules retrieves all scheduled scans that are due to run
 func (r *schedulerRepo) GetDueSchedules(ctx context.Context) ([]domain.ScheduledScan, error) {
 	log.Printf("Scheduler Repository: Getting due schedules")
 
@@ -58,7 +57,7 @@ func (r *schedulerRepo) GetDueSchedules(ctx context.Context) ([]domain.Scheduled
 	}
 	defer rows.Close()
 
-	// Rest of the method remains the same
+	// Process the results
 	for rows.Next() {
 		var scanner types.Scanner
 		var schedule types.Schedule
@@ -316,7 +315,7 @@ func (r *schedulerRepo) UpdateScanJobStatus(ctx context.Context, jobID int64, st
 	return nil
 }
 
-// CompleteScanJob marks a scan job as complete// CompleteScanJob marks a scan job as complete
+// CompleteScanJob marks a scan job as complete
 func (r *schedulerRepo) CompleteScanJob(ctx context.Context, jobID int64, status domain.ScheduleStatus) error {
 	log.Printf("Scheduler Repository: Completing scan job ID: %d with status: %s", jobID, status)
 
@@ -367,8 +366,6 @@ func (r *schedulerRepo) CompleteScanJob(ctx context.Context, jobID int64, status
 	log.Printf("Scheduler Repository: Successfully completed scan job ID: %d", jobID)
 	return nil
 }
-
-// UpdateScanJobStatus updates the status of an existing scan job
 
 // GetScannerWithSchedule retrieves a scanner with its associated schedule
 func (r *schedulerRepo) GetScannerWithSchedule(ctx context.Context, scannerID int64) (*domain.ScheduledScan, error) {
@@ -432,10 +429,20 @@ func (r *schedulerRepo) GetScannerWithSchedule(ctx context.Context, scannerID in
 		Minute:         schedule.Minute,
 	}
 
+	// Get next run time if available
+	var nextRunTime time.Time
+	if schedule.NextRunTime != nil {
+		nextRunTime = *schedule.NextRunTime
+	} else {
+		// Calculate next run time if not available
+		nextRunTime = domain.CalculateNextRunTime(scheduleDomainModel, time.Now())
+	}
+
 	// Create scheduled scan
 	scheduledScan := &domain.ScheduledScan{
-		Scanner:  *scannerDomainModel,
-		Schedule: scheduleDomainModel,
+		Scanner:     *scannerDomainModel,
+		Schedule:    scheduleDomainModel,
+		NextRunTime: nextRunTime,
 	}
 
 	return scheduledScan, nil
@@ -507,10 +514,20 @@ func (r *schedulerRepo) GetActiveScanners(ctx context.Context) ([]domain.Schedul
 				Minute:         schedule.Minute,
 			}
 
+			// Get the next run time
+			var nextRunTime time.Time
+			if schedule.NextRunTime != nil {
+				nextRunTime = *schedule.NextRunTime
+			} else {
+				// Calculate next run time if not available
+				nextRunTime = domain.CalculateNextRunTime(scheduleDomainModel, time.Now())
+			}
+
 			// Create scheduled scan entry
 			scheduledScan := domain.ScheduledScan{
-				Scanner:  *scannerDomainModel,
-				Schedule: scheduleDomainModel,
+				Scanner:     *scannerDomainModel,
+				Schedule:    scheduleDomainModel,
+				NextRunTime: nextRunTime,
 			}
 
 			scheduledScans = append(scheduledScans, scheduledScan)

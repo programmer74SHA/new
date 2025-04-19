@@ -71,10 +71,17 @@ func registerScannerAPI(appContainer app.AppContainer, router fiber.Router) {
 
 	router.Post("/batch-delete", setTransaction(appContainer.DB()), DeleteScanners(scannerSvcGetter))
 	router.Post("/batch-enabled", setTransaction(appContainer.DB()), BatchUpdateScannersEnabled(scannerSvcGetter))
+
+	// Add the new scan now endpoint
+	router.Post("/:id/run", RunScanNow(scannerSvcGetter))
 }
 
-// New function to register the scan job API endpoints
+// Register the scan job API endpoints
 func registerScanJobAPI(appContainer app.AppContainer, router fiber.Router) {
 	scannerSvcGetter := scannerServiceGetter(appContainer)
+
+	// Route to cancel a running scan job
 	router.Post("/cancel/:id", CancelScanJob(scannerSvcGetter))
+
+	// You may want to add additional routes here for listing scan jobs, etc.
 }

@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/domain"
+	scannerDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/domain"
 	scannerPort "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/port"
+	schedulerDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scheduler/domain"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/pkg/adapter/storage/types"
 	appCtx "gitlab.apk-group.net/siem/backend/asset-discovery/pkg/context"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/pkg/query"
@@ -23,6 +25,38 @@ func NewScannerRepo(db *gorm.DB) scannerPort.Repo {
 	return &scannerRepo{
 		db: db,
 	}
+}
+
+// Helper method for creating schedules with proper next_run_time
+func (r *scannerRepo) createScheduleWithNextRunTime(db *gorm.DB, scannerID int64, schedule *scannerDomain.Schedule) error {
+	// Create a domain schedule object to calculate next run time
+	domainSchedule := *schedule
+	domainSchedule.ScannerID = scannerID
+
+	// Calculate the next run time based on the schedule configuration
+	nextRunTime := schedulerDomain.CalculateNextRunTime(domainSchedule, time.Now())
+
+	log.Printf("Repository: Calculated next run time for new schedule: %v", nextRunTime)
+
+	// Create the storage schedule with the calculated next run time
+	storageSchedule := &types.Schedule{
+		ScannerID:      domainSchedule.ScannerID,
+		FrequencyValue: domainSchedule.FrequencyValue,
+		FrequencyUnit:  domainSchedule.FrequencyUnit,
+		Month:          domainSchedule.Month,
+		Week:           domainSchedule.Week,
+		Day:            domainSchedule.Day,
+		Hour:           domainSchedule.Hour,
+		Minute:         domainSchedule.Minute,
+		CreatedAt:      domainSchedule.CreatedAt,
+		NextRunTime:    &nextRunTime, // Set the next_run_time field
+	}
+
+	if domainSchedule.UpdatedAt != nil {
+		storageSchedule.UpdatedAt = domainSchedule.UpdatedAt
+	}
+
+	return db.Table("schedules").Create(storageSchedule).Error
 }
 
 func (r *scannerRepo) Create(ctx context.Context, scanner domain.ScannerDomain) (int64, error) {
@@ -94,26 +128,7 @@ func (r *scannerRepo) Create(ctx context.Context, scanner domain.ScannerDomain) 
 
 	// Handle schedule data if it exists
 	if scanner.Schedule != nil {
-		schedule := *scanner.Schedule
-		schedule.ScannerID = scannerID
-
-		storageSchedule := &types.Schedule{
-			ScannerID:      schedule.ScannerID,
-			FrequencyValue: schedule.FrequencyValue,
-			FrequencyUnit:  schedule.FrequencyUnit,
-			Month:          schedule.Month,
-			Week:           schedule.Week,
-			Day:            schedule.Day,
-			Hour:           schedule.Hour,
-			Minute:         schedule.Minute,
-			CreatedAt:      schedule.CreatedAt,
-		}
-
-		if schedule.UpdatedAt != nil {
-			storageSchedule.UpdatedAt = schedule.UpdatedAt
-		}
-
-		if err := db.Table("schedules").Create(storageSchedule).Error; err != nil {
+		if err := r.createScheduleWithNextRunTime(db, scannerID, scanner.Schedule); err != nil {
 			return 0, err
 		}
 	}
@@ -572,28 +587,31 @@ func (r *scannerRepo) Update(ctx context.Context, scanner domain.ScannerDomain) 
 		var count int64
 		db.Table("schedules").Where("scanner_id = ?", scanner.ID).Count(&count)
 
-		// Create a map for schedule updates
-		scheduleMap := map[string]interface{}{
-			"scanner_id":      schedule.ScannerID,
-			"frequency_value": schedule.FrequencyValue,
-			"frequency_unit":  schedule.FrequencyUnit,
-			"month":           schedule.Month,
-			"week":            schedule.Week,
-			"day":             schedule.Day,
-			"hour":            schedule.Hour,
-			"minute":          schedule.Minute,
-		}
-
 		if count > 0 {
+			// Calculate next run time
+			nextRunTime := schedulerDomain.CalculateNextRunTime(schedule, time.Now())
+
 			// Update existing schedule using map
+			scheduleMap := map[string]interface{}{
+				"scanner_id":      schedule.ScannerID,
+				"frequency_value": schedule.FrequencyValue,
+				"frequency_unit":  schedule.FrequencyUnit,
+				"month":           schedule.Month,
+				"week":            schedule.Week,
+				"day":             schedule.Day,
+				"hour":            schedule.Hour,
+				"minute":          schedule.Minute,
+				"next_run_time":   nextRunTime,
+				"updated_at":      time.Now(),
+			}
+
 			if err := db.Table("schedules").Where("scanner_id = ?", scanner.ID).
 				Updates(scheduleMap).Error; err != nil {
 				return err
 			}
 		} else {
-			// Create new schedule
-			scheduleMap["created_at"] = time.Now()
-			if err := db.Table("schedules").Create(scheduleMap).Error; err != nil {
+			// Create new schedule with next run time
+			if err := r.createScheduleWithNextRunTime(db, scanner.ID, &schedule); err != nil {
 				return err
 			}
 		}

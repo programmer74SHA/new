@@ -2,13 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"gitlab.apk-group.net/siem/backend/asset-discovery/api/pb"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/domain"
+	scannerDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/domain"
 	scannerPort "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/port"
+	schedulerDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scheduler/domain"
 	schedulerPort "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scheduler/port"
 )
 
@@ -344,6 +349,113 @@ func (s *ScannerService) CancelScanJob(ctx context.Context, req *pb.CancelScanJo
 
 	return &pb.CancelScanJobResponse{
 		Success: true,
+	}, nil
+}
+
+// RunScanNow immediately executes a scan for the specified scanner
+func (s *ScannerService) RunScanNow(ctx context.Context, req *pb.RunScanNowRequest) (*pb.RunScanNowResponse, error) {
+	log.Printf("Service: Running immediate scan for scanner ID: %s", req.GetScannerId())
+
+	// Parse scanner ID
+	scannerID, err := strconv.ParseInt(req.GetScannerId(), 10, 64)
+	if err != nil {
+		log.Printf("Service: Invalid scanner ID: %v", err)
+		return &pb.RunScanNowResponse{
+			Success:      false,
+			ErrorMessage: "Invalid scanner ID",
+		}, ErrInvalidScannerInput
+	}
+
+	// Get the scanner details
+	scanner, err := s.service.GetScannerByID(ctx, scannerID)
+	if err != nil {
+		log.Printf("Service: Error retrieving scanner: %v", err)
+		return &pb.RunScanNowResponse{
+			Success:      false,
+			ErrorMessage: err.Error(),
+		}, err
+	}
+
+	if scanner == nil {
+		log.Printf("Service: Scanner not found with ID: %d", scannerID)
+		return &pb.RunScanNowResponse{
+			Success:      false,
+			ErrorMessage: "Scanner not found",
+		}, ErrScannerNotFound
+	}
+
+	// Check if scheduler service is set
+	if s.schedulerService == nil {
+		log.Printf("Service: Scheduler service not available")
+		return &pb.RunScanNowResponse{
+			Success:      false,
+			ErrorMessage: "Scheduler service not available",
+		}, errors.New("scheduler service not available")
+	}
+
+	// Create a scan job record
+	scanJob := schedulerDomain.ScanJob{
+		ScannerID: scannerID,
+		Name:      fmt.Sprintf("%s - Manual Run", scanner.Name),
+		Type:      string(scanner.ScanType),
+		Status:    schedulerDomain.ScheduleStatusRunning,
+		StartTime: time.Now(),
+		Progress:  0,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Use the scheduler service to create a scan job
+	jobID, err := s.schedulerService.CreateScanJob(ctx, scanJob)
+	if err != nil {
+		log.Printf("Service: Error creating scan job: %v", err)
+		return &pb.RunScanNowResponse{
+			Success:      false,
+			ErrorMessage: "Failed to create scan job: " + err.Error(),
+		}, err
+	}
+
+	// Execute the scan in a goroutine
+	go func() {
+		// Create a new context for the background operation
+		bgCtx := context.Background()
+
+		// Update job status to show scan is starting
+		err := s.schedulerService.UpdateScanJobStatus(bgCtx, jobID, schedulerDomain.ScheduleStatusRunning, 10)
+		if err != nil {
+			log.Printf("Service: Failed to update scan job status: %v", err)
+		}
+
+		// Execute the appropriate scan based on scanner type
+		var scanErr error
+		if scanner.ScanType == scannerDomain.ScannerTypeNmap {
+			// We need to find a way to access the NmapScanner
+			// This would require adding a method to the scheduler service
+			scanErr = s.schedulerService.ExecuteManualScan(bgCtx, *scanner, jobID)
+		} else {
+			scanErr = fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
+		}
+
+		// Update job status based on scan result
+		if scanErr != nil {
+			log.Printf("Service: Error executing scan: %v", scanErr)
+			err := s.schedulerService.CompleteScanJob(bgCtx, jobID, schedulerDomain.ScheduleStatusFailed)
+			if err != nil {
+				log.Printf("Service: Failed to update job status to failed: %v", err)
+			}
+		} else {
+			err := s.schedulerService.CompleteScanJob(bgCtx, jobID, schedulerDomain.ScheduleStatusComplete)
+			if err != nil {
+				log.Printf("Service: Failed to update job status to complete: %v", err)
+			}
+		}
+
+		log.Printf("Service: Manual scan job ID %d completed with status: %v", jobID, scanErr == nil)
+	}()
+
+	return &pb.RunScanNowResponse{
+		Success: true,
+		JobId:   jobID,
 	}, nil
 }
 

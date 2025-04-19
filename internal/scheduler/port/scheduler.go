@@ -39,6 +39,9 @@ type Service interface {
 	// ExecuteScheduledScan runs a scheduled scan
 	ExecuteScheduledScan(ctx context.Context, scheduledScan domain.ScheduledScan) error
 
+	// CreateScanJob creates a new scan job record
+	CreateScanJob(ctx context.Context, job domain.ScanJob) (int64, error)
+
 	// UpdateScanJobStatus updates the status of an existing scan job
 	UpdateScanJobStatus(ctx context.Context, jobID int64, status domain.ScheduleStatus, progress int) error
 
@@ -50,4 +53,7 @@ type Service interface {
 
 	// CancelScanJob cancels a running scan job
 	CancelScanJob(ctx context.Context, jobID int64) error
+
+	// ExecuteManualScan runs a scan manually
+	ExecuteManualScan(ctx context.Context, scanner scannerDomain.ScannerDomain, jobID int64) error
 }

@@ -16,9 +16,7 @@ func AddMigrations(db *gorm.DB) error {
 			return err
 		}
 
-		// Set initial next_run_time for all existing schedules
-		// For schedules with specific hour/minute, combine with frequency
-		// First, update schedules with valid hour/minute values
+		// Set initial next_run_time for all existing schedules based on their frequency settings
 		if err := db.Exec(`
 			UPDATE schedules 
 			SET next_run_time = 
@@ -64,6 +62,26 @@ func AddMigrations(db *gorm.DB) error {
 
 		// Make sure all schedules have a next_run_time
 		if err := db.Exec("UPDATE schedules SET next_run_time = DATE_ADD(NOW(), INTERVAL 1 DAY) WHERE next_run_time IS NULL").Error; err != nil {
+			return err
+		}
+	}
+
+	// Check if 'Cancelled' is in the enum for scan_jobs status column
+	var hasStatusCancelled bool
+	err = db.Raw(`
+		SELECT COUNT(*) > 0 
+		FROM INFORMATION_SCHEMA.COLUMNS 
+		WHERE TABLE_NAME = 'scan_jobs' 
+		AND COLUMN_NAME = 'status' 
+		AND COLUMN_TYPE LIKE '%Cancelled%'
+	`).Scan(&hasStatusCancelled).Error
+	if err != nil {
+		return err
+	}
+
+	// Add 'Cancelled' to the status enum if it doesn't exist
+	if !hasStatusCancelled {
+		if err := db.Exec("ALTER TABLE scan_jobs MODIFY COLUMN status ENUM('Pending', 'Running', 'Completed', 'Failed', 'Error', 'Cancelled') NOT NULL DEFAULT 'Pending'").Error; err != nil {
 			return err
 		}
 	}
