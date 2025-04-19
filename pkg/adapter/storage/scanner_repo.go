@@ -200,6 +200,8 @@ func (r *scannerRepo) DeleteBatch(ctx context.Context, scannerIDs []int64) (int,
 	return int(result.RowsAffected), nil
 }
 
+// Updated in pkg/adapter/storage/scanner_repo.go
+
 func (r *scannerRepo) List(ctx context.Context, filter domain.ScannerFilter, pagination domain.Pagination) ([]domain.ScannerDomain, int, error) {
 	log.Printf("Repository: Listing scanners with filter: %+v, pagination: %+v", filter, pagination)
 
@@ -247,6 +249,10 @@ func (r *scannerRepo) List(ctx context.Context, filter domain.ScannerFilter, pag
 	// Execute the query
 	var scanners []types.Scanner
 	finalQuery := queryBuilder.Build()
+
+	// Debug log to check SQL query
+	log.Printf("Repository: SQL Query: %v", finalQuery.Statement.SQL.String())
+
 	if err := finalQuery.Find(&scanners).Error; err != nil {
 		log.Printf("Repository: Error listing scanners: %v", err)
 		return nil, 0, err
@@ -260,9 +266,13 @@ func (r *scannerRepo) List(ctx context.Context, filter domain.ScannerFilter, pag
 			ID:        s.ID,
 			Name:      s.Name,
 			ScanType:  s.ScanType,
-			Status:    s.Status,
+			Status:    s.Status, // Make sure Status is properly set
 			CreatedAt: s.CreatedAt,
 		}
+
+		// Log scanner data for debugging
+		log.Printf("Repository: Scanner from DB: ID=%d, Name=%s, ScanType=%s, Status=%v",
+			s.ID, s.Name, s.ScanType, s.Status)
 
 		if s.UserID != nil {
 			scanner.UserID = *s.UserID

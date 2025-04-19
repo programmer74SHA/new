@@ -41,7 +41,6 @@ type ScanJob struct {
 }
 
 // CalculateNextRunTime determines when the next scan should run based on the schedule configuration
-// CalculateNextRunTime determines when the next scan should run based on the schedule configuration
 func CalculateNextRunTime(schedule scannerDomain.Schedule, from time.Time) time.Time {
 	log.Printf("Calculating next run time from %v with frequency %d %s",
 		from, schedule.FrequencyValue, schedule.FrequencyUnit)

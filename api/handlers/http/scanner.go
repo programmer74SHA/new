@@ -135,6 +135,7 @@ type ListScannersBodyRequest struct {
 	Filter map[string]interface{} `json:"filter"`
 }
 
+// Updated ListScanners handler in api/handlers/http/scanner.go
 func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		srv := svcGetter(c.UserContext())
@@ -185,25 +186,29 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 
 		// Handle boolean status filter
 		StatusParam := c.Query("status", c.Query("filter[status]", ""))
+		var statusValue bool
+		var hasStatusFilter bool
+
 		if StatusParam != "" {
-			Status := false
+			hasStatusFilter = true
 			// Convert string to boolean
 			if StatusParam == "true" || StatusParam == "1" {
-				Status = true
+				statusValue = true
 				req.Status = true
 			} else if StatusParam == "false" || StatusParam == "0" {
-				Status = false
+				statusValue = false
 				req.Status = false
 			}
 			// Log the status filter
-			logger.Info("Setting status filter from URL", "status", Status)
+			logger.Info("Setting status filter from URL", "status", statusValue)
 		}
 
 		// Log the complete request
 		logger.Info("Filter request",
 			"name", req.Name,
 			"scan_type", req.ScanType,
-			"status", req.Status)
+			"status", req.Status,
+			"has_status_filter", hasStatusFilter)
 
 		// Call the enhanced service method
 		response, totalCount, err := srv.ListScanners(
@@ -215,12 +220,24 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 			sortOrder,
 		)
 
+		log.Printf("responseeeeeeeeee , %v", response)
+
 		if err != nil {
 			logger.Error("Failed to list scanners", "error", err)
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 
 		// Format the response to match the desired structure
+		filterObj := map[string]interface{}{
+			"name":      req.Name,
+			"scan_type": req.ScanType,
+		}
+
+		// Only include status in response if it was in the request
+		if hasStatusFilter {
+			filterObj["status"] = statusValue
+		}
+
 		result := map[string]interface{}{
 			"data": map[string]interface{}{
 				"contents": response.Scanners,
@@ -235,11 +252,7 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 						"order": sortOrder,
 					},
 				},
-				"filter": map[string]interface{}{
-					"name":      req.Name,
-					"scan_type": req.ScanType,
-					"status":    req.Status,
-				},
+				"filter": filterObj,
 			},
 		}
 

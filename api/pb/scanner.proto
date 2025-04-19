@@ -6,7 +6,7 @@ message Scanner {
     string id = 1 [json_name = "id"];
     string scan_type = 2 [json_name = "scan_type"];
     string name = 3 [json_name = "name"];
-    bool status = 4 [json_name = "status"];
+    bool status = 4 [json_name = "status"]; 
     string created_at = 5 [json_name = "created_at"];
     string updated_at = 6 [json_name = "updated_at"];
     string user_id = 7 [json_name = "user_id"];

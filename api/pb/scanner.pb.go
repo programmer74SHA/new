@@ -26,7 +26,7 @@ type Scanner struct {
 	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ScanType           string                 `protobuf:"bytes,2,opt,name=scan_type,proto3" json:"scan_type,omitempty"`
 	Name               string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Status             bool                   `protobuf:"varint,4,opt,name=status,proto3" json:"status,omitempty"`
+	Status             bool                   `protobuf:"varint,4,opt,name=status,proto3" json:"status,omitempty"` // Make sure this exists
 	CreatedAt          string                 `protobuf:"bytes,5,opt,name=created_at,proto3" json:"created_at,omitempty"`
 	UpdatedAt          string                 `protobuf:"bytes,6,opt,name=updated_at,proto3" json:"updated_at,omitempty"`
 	UserId             string                 `protobuf:"bytes,7,opt,name=user_id,proto3" json:"user_id,omitempty"`

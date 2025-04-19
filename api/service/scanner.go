@@ -244,8 +244,10 @@ func (s *ScannerService) ListScanners(
 
 	// Always set the Status filter regardless of its value
 	// This ensures filters work for both true and false values
-	Status := req.Status
-	filter.Status = &Status
+	if req != nil {
+		Status := req.Status
+		filter.Status = &Status
+	}
 
 	// Create pagination options
 	pagination := domain.Pagination{
@@ -264,7 +266,14 @@ func (s *ScannerService) ListScanners(
 	// Convert domain objects to protobuf objects
 	var pbScanners []*pb.Scanner
 	for _, scanner := range scanners {
-		pbScanners = append(pbScanners, mapDomainToProto(&scanner))
+		// Make a copy to avoid modifying the original
+		scannerCopy := scanner
+		pbScanner := mapDomainToProto(&scannerCopy)
+
+		// Ensure status is set explicitly
+		pbScanner.Status = scanner.Status
+
+		pbScanners = append(pbScanners, pbScanner)
 	}
 
 	return &pb.ListScannersResponse{
@@ -334,6 +343,9 @@ func (s *ScannerService) CancelScanJob(ctx context.Context, req *pb.CancelScanJo
 }
 
 // Helper function to map domain scanner to protobuf scanner
+// Update to mapDomainToProto function in api/service/scanner.go
+
+// Helper function to map domain scanner to protobuf scanner
 func mapDomainToProto(scanner *domain.ScannerDomain) *pb.Scanner {
 	if scanner == nil {
 		return nil
@@ -343,7 +355,7 @@ func mapDomainToProto(scanner *domain.ScannerDomain) *pb.Scanner {
 		Id:                 strconv.FormatInt(scanner.ID, 10),
 		Name:               scanner.Name,
 		ScanType:           scanner.ScanType,
-		Status:             scanner.Status,
+		Status:             scanner.Status, // Ensure this is included
 		UserId:             scanner.UserID,
 		CreatedAt:          scanner.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt:          scanner.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
