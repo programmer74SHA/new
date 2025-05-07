@@ -122,7 +122,7 @@ func (s *AssetService) CreateAsset(ctx context.Context, req *pb.CreateAssetReque
 	ips := make([]domain.AssetIP, 0, len(req.GetAssetIps()))
 	for _, ip := range req.GetAssetIps() {
 		ips = append(ips, domain.AssetIP{
-			AssetID:    id.String(),
+			AssetID:    id,
 			IPAddress:  ip.GetIp(),
 			MACAddress: ip.GetMacAddress(),
 		})
@@ -182,7 +182,7 @@ func (s *AssetService) UpdateAsset(ctx context.Context, req *pb.UpdateAssetReque
 	ips := make([]domain.AssetIP, 0, len(req.GetAssetIps()))
 	for _, ip := range req.GetAssetIps() {
 		ips = append(ips, domain.AssetIP{
-			AssetID:    assetUUID.String(),
+			AssetID:    assetUUID,
 			IPAddress:  ip.GetIp(),
 			MACAddress: ip.GetMacAddress(),
 		})
@@ -331,8 +331,8 @@ func domainToPbAsset(asset domain.AssetDomain) *pb.Asset {
 	pbAssetIPs := make([]*pb.AssetIP, 0, len(asset.AssetIPs))
 	for _, ip := range asset.AssetIPs {
 		pbAssetIPs = append(pbAssetIPs, &pb.AssetIP{
-			AssetId: ip.AssetID,
-			// Ip:         ip.IP,
+			AssetId: ip.AssetID.String(),
+			// Ip:         ip.IPAddress,
 			MacAddress: ip.MACAddress,
 		})
 	}

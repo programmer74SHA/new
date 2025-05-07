@@ -43,7 +43,7 @@ func AssetDomain2Storage(asset domain.AssetDomain) (*types.Asset, []*types.Asset
 		assetIPs = append(assetIPs, &types.AssetIP{
 			ID:         uuid.New().String(),
 			AssetID:    asset.ID.String(),
-			IPAddress:  ip.IP,
+			IPAddress:  ip.IPAddress,
 			MACAddress: ip.MACAddress,
 			CreatedAt:  asset.CreatedAt,
 			UpdatedAt:  assetStorage.UpdatedAt,
@@ -103,8 +103,8 @@ func AssetStorage2Domain(asset types.Asset) (*Domain.AssetDomain, error) {
 	ips := make([]Domain.AssetIP, 0, len(asset.AssetIPs))
 	for _, ip := range asset.AssetIPs {
 		ips = append(ips, Domain.AssetIP{
-			AssetID:    ip.AssetID,
-			IP:         ip.IPAddress,
+			AssetID:    uid,
+			IPAddress:  ip.IPAddress,
 			MACAddress: ip.MACAddress,
 		})
 	}
@@ -183,8 +183,8 @@ func PortDomain2Storage(port Domain.Port) *types.Port {
 func AssetIPDomain2Storage(ip Domain.AssetIP) *types.AssetIP {
 	return &types.AssetIP{
 		ID:         uuid.New().String(),
-		AssetID:    ip.AssetID,
-		IPAddress:  ip.IP,
+		AssetID:    ip.AssetID.String(),
+		IPAddress:  ip.IPAddress,
 		MACAddress: ip.MACAddress,
 	}
 }
