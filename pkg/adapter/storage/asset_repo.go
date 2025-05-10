@@ -66,21 +66,29 @@ func (r *assetRepository) UpdateAssetPorts(ctx context.Context, assetID domain.A
 
 // Create implements the asset repository Create method without placeholder IPs
 func (r *assetRepository) Create(ctx context.Context, asset domain.AssetDomain) (domain.AssetUUID, error) {
-	log.Printf("Creating asset with %d IPs", len(asset.IPs))
+	log.Printf("Creating asset with %d IPs", len(asset.AssetIPs))
 
 	// Filter and validate IPs
 	var validIPs []string
-	for _, ip := range asset.IPs {
+	for _, assetIP := range asset.AssetIPs {
 		// Basic IP validation - check if it looks like an IPv4 address
-		if r.validateIP(ip) {
-			validIPs = append(validIPs, ip)
+		if r.validateIP(assetIP.IP) {
+			validIPs = append(validIPs, assetIP.IP)
 		} else {
-			log.Printf("Filtering out invalid IP format: %s", ip)
+			log.Printf("Filtering out invalid IP format: %s", assetIP.IP)
 		}
 	}
 
-	// Set the valid IPs (could be empty)
-	asset.IPs = validIPs
+	// Create new AssetIP objects with valid IPs
+	var assetIPList []domain.AssetIP
+	for _, ip := range validIPs {
+		assetIPList = append(assetIPList, domain.AssetIP{
+			AssetID:    asset.ID.String(),
+			IP:         ip,
+			MACAddress: "",
+		})
+	}
+	asset.AssetIPs = assetIPList
 
 	// If we have valid IPs, check if an asset with the primary IP already exists
 	if len(validIPs) > 0 {
@@ -148,7 +156,7 @@ func (r *assetRepository) Create(ctx context.Context, asset domain.AssetDomain) 
 			}
 
 			// Process additional IPs if any
-			for _, ip := range asset.IPs {
+			for _, ip := range validIPs {
 				// Skip if it's the primary IP which we know already exists
 				if ip == primaryIP {
 					continue
@@ -242,7 +250,7 @@ func (r *assetRepository) Create(ctx context.Context, asset domain.AssetDomain) 
 		return domain.AssetUUID{}, err
 	}
 
-	log.Printf("Successfully created new asset with ID: %s and %d IPs", asset.ID, len(asset.IPs))
+	log.Printf("Successfully created new asset with ID: %s and %d IPs", asset.ID, len(asset.AssetIPs))
 	return asset.ID, nil
 }
 
@@ -285,18 +293,45 @@ func (r *assetRepository) getAssetIPs(ctx context.Context, assetID string) ([]ty
 	return assetIPs, err
 }
 
-// GetByID retrieves an asset by its ID
-func (r *assetRepository) GetByID(ctx context.Context, assetUUID domain.AssetUUID) (*domain.AssetDomain, error) {
-	var asset types.Asset
-	// Use preload to include related data
-	err := r.db.WithContext(ctx).Preload("Ports").Preload("VMwareVMs").Preload("AssetIPs").Where("id = ?", assetUUID).First(&asset).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+// GetByIDs fetches assets by their UUIDs in a single query
+// If a single UUID is provided, it returns a slice with one asset
+func (r *assetRepository) GetByIDs(ctx context.Context, assetUUIDs []domain.AssetUUID) ([]domain.AssetDomain, error) {
+	if len(assetUUIDs) == 0 {
+		return []domain.AssetDomain{}, nil
 	}
-	if asset.ID == "" {
-		return nil, nil
+
+	ids := make([]string, len(assetUUIDs))
+	for i, uid := range assetUUIDs {
+		ids[i] = uid.String()
 	}
-	return mapper.AssetStorage2Domain(asset)
+
+	var assets []types.Asset
+	query := r.db.WithContext(ctx).
+		Preload("Ports").
+		Preload("VMwareVMs").
+		Preload("AssetIPs")
+
+	if len(assetUUIDs) == 1 {
+		err := query.Where("id = ?", assetUUIDs[0]).Find(&assets).Error
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		err := query.Where("id IN ?", ids).Find(&assets).Error
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	result := make([]domain.AssetDomain, 0, len(assets))
+	for _, a := range assets {
+		dom, err := mapper.AssetStorage2Domain(a)
+		if err != nil {
+			continue
+		}
+		result = append(result, *dom)
+	}
+	return result, nil
 }
 
 // Get retrieves assets based on filters
@@ -355,33 +390,6 @@ func (r *assetRepository) Get(ctx context.Context, assetFilter domain.AssetFilte
 	}
 
 	return results, nil
-}
-
-// GetByIDs fetches multiple assets by their UUIDs in a single query
-func (r *assetRepository) GetByIDs(ctx context.Context, assetUUIDs []domain.AssetUUID) ([]domain.AssetDomain, error) {
-	ids := make([]string, len(assetUUIDs))
-	for i, uid := range assetUUIDs {
-		ids[i] = uid.String()
-	}
-	var assets []types.Asset
-	err := r.db.WithContext(ctx).
-		Preload("Ports").
-		Preload("VMwareVMs").
-		Preload("AssetIPs").
-		Where("id IN ?", ids).
-		Find(&assets).Error
-	if err != nil {
-		return nil, err
-	}
-	result := make([]domain.AssetDomain, 0, len(assets))
-	for _, a := range assets {
-		dom, err := mapper.AssetStorage2Domain(a)
-		if err != nil {
-			continue
-		}
-		result = append(result, *dom)
-	}
-	return result, nil
 }
 
 // Get implements the asset repository Get method with filtering, sorting, and pagination
@@ -556,42 +564,102 @@ func (r *assetRepository) StoreVMwareVM(ctx context.Context, vmData domain.VMwar
 	}
 }
 
-// Delete soft-deletes an asset by its UUID
-func (r *assetRepository) Delete(ctx context.Context, assetUUID domain.AssetUUID) (int, error) {
+// DeleteAssets is a unified method that handles all asset deletion scenarios
+func (r *assetRepository) DeleteAssets(ctx context.Context, params domain.DeleteParams) (int, error) {
 	currentTime := time.Now()
-	result := r.db.WithContext(ctx).
-		Model(&types.Asset{}).
-		Where("id = ?", assetUUID).
-		Update("deleted_at", currentTime)
+	query := r.db.WithContext(ctx).Model(&types.Asset{})
 
-	if result.Error != nil {
-		return 0, result.Error
-	}
+	// Always only delete non-deleted assets
+	query = query.Where("deleted_at IS NULL")
 
-	if result.RowsAffected == 0 {
-		return 0, nil
-	}
+	// Case 1: Single asset deletion by UUID
+	if params.UUID != nil {
+		result := query.Where("id = ?", *params.UUID).
+			Update("deleted_at", currentTime)
 
-	return 1, nil
-}
-
-// DeleteMultiple soft-deletes multiple assets by their UUIDs
-func (r *assetRepository) DeleteMultiple(ctx context.Context, assetUUIDs []domain.AssetUUID) error {
-	if len(assetUUIDs) == 0 {
-		return nil
-	}
-
-	// Use transaction to ensure atomicity for multiple assets deletion
-	currentTime := time.Now()
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&types.Asset{}).
-			Where("id IN ?", assetUUIDs).
-			Update("deleted_at", currentTime).Error; err != nil {
-			return err
+		if result.Error != nil {
+			return 0, result.Error
 		}
 
+		return int(result.RowsAffected), nil
+	}
+
+	// Use transaction for all other cases to ensure atomicity
+	var affectedRows int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txQuery := tx.Model(&types.Asset{}).Where("deleted_at IS NULL")
+
+		// Case 2: Delete multiple assets by UUID
+		if len(params.UUIDs) > 0 && params.Filters == nil {
+			result := txQuery.Where("id IN ?", params.UUIDs).
+				Update("deleted_at", currentTime)
+
+			if result.Error != nil {
+				return result.Error
+			}
+
+			affectedRows = result.RowsAffected
+			return nil
+		}
+
+		// Case 3: Delete assets by filters
+		if params.Filters != nil {
+			// Apply all filters
+			if params.Filters.Name != "" {
+				txQuery = txQuery.Where("name LIKE ?", "%"+params.Filters.Name+"%")
+			}
+
+			if params.Filters.Domain != "" {
+				txQuery = txQuery.Where("domain LIKE ?", "%"+params.Filters.Domain+"%")
+			}
+
+			if params.Filters.Hostname != "" {
+				txQuery = txQuery.Where("hostname LIKE ?", "%"+params.Filters.Hostname+"%")
+			}
+
+			if params.Filters.OSName != "" {
+				txQuery = txQuery.Where("os_name LIKE ?", "%"+params.Filters.OSName+"%")
+			}
+
+			if params.Filters.OSVersion != "" {
+				txQuery = txQuery.Where("os_version LIKE ?", "%"+params.Filters.OSVersion+"%")
+			}
+
+			if params.Filters.Type != "" {
+				txQuery = txQuery.Where("type = ?", params.Filters.Type)
+			}
+
+			if params.Filters.IP != "" {
+				// Join with assetIPs table to filter by IP
+				txQuery = txQuery.Joins("JOIN asset_ips ON assets.id = asset_ips.asset_id").
+					Where("asset_ips.ip_address LIKE ?", "%"+params.Filters.IP+"%").
+					Group("assets.id")
+			}
+
+			result := txQuery.Update("deleted_at", currentTime)
+			if result.Error != nil {
+				return result.Error
+			}
+
+			affectedRows = result.RowsAffected
+			return nil
+		}
+
+		// Case 4: Delete all assets (no UUID, no UUIDs, no filters)
+		result := txQuery.Update("deleted_at", currentTime)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		affectedRows = result.RowsAffected
 		return nil
 	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	return int(affectedRows), nil
 }
 
 // ExportAssets exports assets based on asset IDs and export type
@@ -625,27 +693,39 @@ func (r *assetRepository) ExportAssets(ctx context.Context, assetIDs []domain.As
 		}
 		exportData.Assets = assets
 
-		if err := r.db.WithContext(ctx).Table("ports").
-			Select("*").
-			Joins("LEFT JOIN assets ON ports.asset_id = assets.id").
-			Where(fetchAll, "", "assets.id IN ?", stringIDs).
-			Find(&exportData.Ports).Error; err != nil {
+		portsQuery := r.db.WithContext(ctx).Table("ports").
+			Select("ports.*").
+			Joins("LEFT JOIN assets ON ports.asset_id = assets.id")
+
+		if !fetchAll {
+			portsQuery = portsQuery.Where("assets.id IN ?", stringIDs)
+		}
+
+		if err := portsQuery.Find(&exportData.Ports).Error; err != nil {
 			return nil, err
 		}
 
-		if err := r.db.WithContext(ctx).Table("vmware_vms").
-			Select("*").
-			Joins("LEFT JOIN assets ON vmware_vms.asset_id = assets.id").
-			Where(fetchAll, "", "assets.id IN ?", stringIDs).
-			Find(&exportData.VMwareVMs).Error; err != nil {
+		vmwareQuery := r.db.WithContext(ctx).Table("vmware_vms").
+			Select("vmware_vms.*").
+			Joins("LEFT JOIN assets ON vmware_vms.asset_id = assets.id")
+
+		if !fetchAll {
+			vmwareQuery = vmwareQuery.Where("assets.id IN ?", stringIDs)
+		}
+
+		if err := vmwareQuery.Find(&exportData.VMwareVMs).Error; err != nil {
 			return nil, err
 		}
 
-		if err := r.db.WithContext(ctx).Table("asset_ips").
-			Select("*").
-			Joins("LEFT JOIN assets ON asset_ips.asset_id = assets.id").
-			Where(fetchAll, "", "assets.id IN ?", stringIDs).
-			Find(&exportData.AssetIPs).Error; err != nil {
+		ipsQuery := r.db.WithContext(ctx).Table("asset_ips").
+			Select("asset_ips.*").
+			Joins("LEFT JOIN assets ON asset_ips.asset_id = assets.id")
+
+		if !fetchAll {
+			ipsQuery = ipsQuery.Where("assets.id IN ?", stringIDs)
+		}
+
+		if err := ipsQuery.Find(&exportData.AssetIPs).Error; err != nil {
 			return nil, err
 		}
 	} else {
@@ -667,31 +747,61 @@ func (r *assetRepository) ExportAssets(ctx context.Context, assetIDs []domain.As
 		}
 
 		if len(portColumns) > 0 {
-			if err := r.db.WithContext(ctx).Table("ports").
-				Select(append(portColumns, "asset_id")).
-				Joins("LEFT JOIN assets ON ports.asset_id = assets.id").
-				Where(fetchAll, "", "assets.id IN ?", stringIDs).
-				Find(&exportData.Ports).Error; err != nil {
+			prefixedPortColumns := make([]string, 0, len(portColumns)+1)
+			for _, col := range portColumns {
+				prefixedPortColumns = append(prefixedPortColumns, "ports."+col)
+			}
+			prefixedPortColumns = append(prefixedPortColumns, "ports.asset_id")
+
+			portsQuery := r.db.WithContext(ctx).Table("ports").
+				Select(strings.Join(prefixedPortColumns, ", ")).
+				Joins("LEFT JOIN assets ON ports.asset_id = assets.id")
+
+			if !fetchAll {
+				portsQuery = portsQuery.Where("assets.id IN ?", stringIDs)
+			}
+
+			if err := portsQuery.Find(&exportData.Ports).Error; err != nil {
 				return nil, err
 			}
 		}
 
 		if len(vmwareColumns) > 0 {
-			if err := r.db.WithContext(ctx).Table("vmware_vms").
-				Select(append(vmwareColumns, "asset_id")).
-				Joins("LEFT JOIN assets ON vmware_vms.asset_id = assets.id").
-				Where(fetchAll, "", "assets.id IN ?", stringIDs).
-				Find(&exportData.VMwareVMs).Error; err != nil {
+			prefixedVMColumns := make([]string, 0, len(vmwareColumns)+1)
+			for _, col := range vmwareColumns {
+				prefixedVMColumns = append(prefixedVMColumns, "vmware_vms."+col)
+			}
+			prefixedVMColumns = append(prefixedVMColumns, "vmware_vms.asset_id")
+
+			vmwareQuery := r.db.WithContext(ctx).Table("vmware_vms").
+				Select(strings.Join(prefixedVMColumns, ", ")).
+				Joins("LEFT JOIN assets ON vmware_vms.asset_id = assets.id")
+
+			if !fetchAll {
+				vmwareQuery = vmwareQuery.Where("assets.id IN ?", stringIDs)
+			}
+
+			if err := vmwareQuery.Find(&exportData.VMwareVMs).Error; err != nil {
 				return nil, err
 			}
 		}
 
 		if len(ipColumns) > 0 {
-			if err := r.db.WithContext(ctx).Table("asset_ips").
-				Select(append(ipColumns, "asset_id")).
-				Joins("LEFT JOIN assets ON asset_ips.asset_id = assets.id").
-				Where(fetchAll, "", "assets.id IN ?", stringIDs).
-				Find(&exportData.AssetIPs).Error; err != nil {
+			prefixedIPColumns := make([]string, 0, len(ipColumns)+1)
+			for _, col := range ipColumns {
+				prefixedIPColumns = append(prefixedIPColumns, "asset_ips."+col)
+			}
+			prefixedIPColumns = append(prefixedIPColumns, "asset_ips.asset_id")
+
+			ipsQuery := r.db.WithContext(ctx).Table("asset_ips").
+				Select(strings.Join(prefixedIPColumns, ", ")).
+				Joins("LEFT JOIN assets ON asset_ips.asset_id = assets.id")
+
+			if !fetchAll {
+				ipsQuery = ipsQuery.Where("assets.id IN ?", stringIDs)
+			}
+
+			if err := ipsQuery.Find(&exportData.AssetIPs).Error; err != nil {
 				return nil, err
 			}
 		}
@@ -822,4 +932,22 @@ func mapFieldToDBColumn(field string) string {
 	default:
 		return "created_at"
 	}
+}
+
+// GetDistinctOSNames returns a list of distinct OS names from all assets
+func (r *assetRepository) GetDistinctOSNames(ctx context.Context) ([]string, error) {
+	var osNames []string
+
+	err := r.db.WithContext(ctx).
+		Model(&types.Asset{}).
+		Select("DISTINCT os_name").
+		Where("os_name IS NOT NULL AND os_name != ''").
+		Order("os_name ASC").
+		Pluck("os_name", &osNames).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return osNames, nil
 }

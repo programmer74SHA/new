@@ -33,12 +33,9 @@ type VMwareVM struct {
 }
 
 type AssetIP struct {
-	ID         uuid.UUID
-	AssetID    AssetUUID
-	IPAddress  string
+	AssetID    string
+	IP         string
 	MACAddress string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
 }
 
 type AssetDomain struct {
@@ -49,7 +46,6 @@ type AssetDomain struct {
 	OSName      string
 	OSVersion   string
 	Type        string
-	IPs         []string
 	Description string
 	Risk        int
 	CreatedAt   time.Time

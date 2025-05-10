@@ -83,6 +83,7 @@ func registerAssetAPI(appContainer app.AppContainer, router fiber.Router) {
 	// Register endpoints
 	assets.Get("/", GetAssets(assetSvcGetter))
 	assets.Get("/:id", GetAssetByID(assetSvcGetter))
+	assets.Get("/os/names", GetDistinctOSNames(assetSvcGetter))
 	assets.Post("/", CreateAsset(assetSvcGetter))
 	assets.Put("/:id", UpdateAsset(assetSvcGetter))
 	assets.Delete("/:id", DeleteAsset(assetSvcGetter))

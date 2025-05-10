@@ -127,8 +127,15 @@ message DeleteAssetResponse {
 
 message DeleteAssetsRequest {
     repeated string ids = 1;
+    Filter filter = 2;
 }
 
 message DeleteAssetsResponse {
     bool success = 1;
+}
+
+message GetDistinctOSNamesRequest {}
+
+message GetDistinctOSNamesResponse {
+    repeated string os_names = 1;
 }

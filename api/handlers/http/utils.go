@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -121,4 +122,78 @@ func extractScanJobFilters(queries map[string]string) *pb.ScanJobFilter {
 	}
 
 	return filter
+}
+
+// transformGetAssetsResponse transforms the standard asset response
+func transformGetAssetsResponse(response *pb.GetAssetsResponse) map[string]interface{} {
+	result := map[string]interface{}{
+		"count": response.Count,
+	}
+
+	// Transform contents
+	contents := make([]map[string]interface{}, 0, len(response.Contents))
+	for _, asset := range response.Contents {
+		assetMap := make(map[string]interface{})
+
+		assetMap["id"] = asset.Id
+		assetMap["name"] = asset.Name
+		assetMap["domain"] = asset.Domain
+		assetMap["hostname"] = asset.Hostname
+		assetMap["os_name"] = asset.OsName
+		assetMap["os_version"] = asset.OsVersion
+		assetMap["asset_type"] = asset.Type
+		assetMap["description"] = asset.Description
+		assetMap["created_at"] = asset.CreatedAt
+		assetMap["updated_at"] = asset.UpdatedAt
+		assetMap["risk"] = asset.Risk
+
+		// asset Ips - structured as nested object with arrays
+		assetIPs := map[string]interface{}{
+			"ip_address":  []string{},
+			"mac_address": []string{},
+		}
+
+		for _, assetIP := range asset.AssetIps {
+			assetIPs["ip_address"] = append(assetIPs["ip_address"].([]string), assetIP.Ip)
+			assetIPs["mac_address"] = append(assetIPs["mac_address"].([]string), assetIP.MacAddress)
+		}
+
+		assetMap["asset_ips"] = assetIPs
+
+		// Add empty scanner info
+		scannerInfo := map[string]interface{}{
+			"type": "",
+		}
+		assetMap["scanner"] = scannerInfo
+
+		// asset Vmware Vms - structured as nested object with arrays
+		vmwareVMs := map[string]interface{}{
+			"vm_id":          []string{},
+			"vm_name":        []string{},
+			"hypervisor":     []string{},
+			"cpu_count":      []string{},
+			"memory_mb":      []string{},
+			"disk_size_gb":   []string{},
+			"power_state":    []string{},
+			"last_synced_at": []string{},
+		}
+
+		for _, vm := range asset.VmwareVms {
+			vmwareVMs["vm_id"] = append(vmwareVMs["vm_id"].([]string), vm.VmId)
+			vmwareVMs["vm_name"] = append(vmwareVMs["vm_name"].([]string), vm.VmName)
+			vmwareVMs["hypervisor"] = append(vmwareVMs["hypervisor"].([]string), vm.Hypervisor)
+			vmwareVMs["cpu_count"] = append(vmwareVMs["cpu_count"].([]string), fmt.Sprintf("%d", vm.CpuCount))
+			vmwareVMs["memory_mb"] = append(vmwareVMs["memory_mb"].([]string), fmt.Sprintf("%d", vm.MemoryMb))
+			vmwareVMs["disk_size_gb"] = append(vmwareVMs["disk_size_gb"].([]string), fmt.Sprintf("%d", vm.DiskSizeGb))
+			vmwareVMs["power_state"] = append(vmwareVMs["power_state"].([]string), vm.PowerState)
+			vmwareVMs["last_synced_at"] = append(vmwareVMs["last_synced_at"].([]string), vm.LastSyncedAt)
+		}
+
+		assetMap["vmware_vms"] = vmwareVMs
+
+		contents = append(contents, assetMap)
+	}
+
+	result["contents"] = contents
+	return result
 }

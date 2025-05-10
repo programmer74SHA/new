@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/api/pb"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/api/service"
+	"gitlab.apk-group.net/siem/backend/asset-discovery/internal/asset/domain"
 )
 
 // CreateAsset handles creation of a new asset via HTTP
@@ -113,7 +114,9 @@ func GetAssets(svcGetter ServiceGetter[*service.AssetService]) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 
-		return c.JSON(response)
+		// Transforming the response to add table names as prefixes and convert nested objects to lists
+		transformedResponse := transformGetAssetsResponse(response)
+		return c.JSON(transformedResponse)
 	}
 }
 
@@ -162,6 +165,32 @@ func DeleteAssets(svcGetter ServiceGetter[*service.AssetService]) fiber.Handler 
 
 		if len(req.Ids) == 0 {
 			return fiber.ErrBadRequest
+		}
+
+		if len(req.Ids) == 1 && req.Ids[0] == "All" {
+			// If "All" is specified with filters, use the filters to delete specific assets
+			if req.Filter != nil {
+				filter := domain.AssetFilters{
+					Name:      req.GetFilter().GetName(),
+					Domain:    req.GetFilter().GetDomain(),
+					Hostname:  req.GetFilter().GetHostname(),
+					OSName:    req.GetFilter().GetOsName(),
+					OSVersion: req.GetFilter().GetOsVersion(),
+					Type:      req.GetFilter().GetType(),
+					IP:        req.GetFilter().GetIp(),
+				}
+				response, err := srv.DeleteAllAssetsWithFilters(c.UserContext(), filter)
+				if err != nil {
+					return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+				}
+				return c.JSON(response)
+			}
+
+			response, err := srv.DeleteAllAssets(c.UserContext())
+			if err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+			}
+			return c.JSON(response)
 		}
 
 		// Convert string IDs to UUIDs
@@ -215,5 +244,19 @@ func ExportAssets(svcGetter ServiceGetter[*service.AssetService]) fiber.Handler 
 		c.Set("Content-Type", "text/csv")
 
 		return c.Send(csvData)
+	}
+}
+
+// GetDistinctOSNames returns all distinct OS names from assets
+func GetDistinctOSNames(svcGetter ServiceGetter[*service.AssetService]) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		srv := svcGetter(c.UserContext())
+
+		response, err := srv.GetDistinctOSNames(c.UserContext(), &pb.GetDistinctOSNamesRequest{})
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		}
+
+		return c.JSON(response)
 	}
 }

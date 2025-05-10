@@ -545,10 +545,9 @@ func (r *DomainRunner) processComputersToAssets(ctx context.Context, computers [
 			// Create AssetIP objects for each valid IP
 			var assetIPList []domain.AssetIP
 			for _, ip := range validIPs {
-				assetUUID := asset.ID
 				assetIPList = append(assetIPList, domain.AssetIP{
-					AssetID:    assetUUID,
-					IPAddress:  ip,
+					AssetID:    asset.ID.String(),
+					IP:         ip,
 					MACAddress: "",
 				})
 			}

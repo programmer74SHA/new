@@ -13,7 +13,10 @@ type Service interface {
 	UpdateAsset(ctx context.Context, asset domain.AssetDomain) error
 	DeleteAsset(ctx context.Context, assetUUID domain.AssetUUID) error
 	DeleteAssets(ctx context.Context, assetUUIDs []domain.AssetUUID) error
+	DeleteAllAssets(ctx context.Context) error
+	DeleteAllAssetsWithFilters(ctx context.Context, filter domain.AssetFilters) error
 	GetByIDs(ctx context.Context, assetUUIDs []domain.AssetUUID) ([]domain.AssetDomain, error)
 	ExportAssets(ctx context.Context, assetIDs []domain.AssetUUID, exportType domain.ExportType, selectedColumns []string) (*domain.ExportData, error)
 	GenerateCSV(ctx context.Context, exportData *domain.ExportData) ([]byte, error)
+	GetDistinctOSNames(ctx context.Context) ([]string, error)
 }

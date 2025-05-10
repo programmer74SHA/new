@@ -542,14 +542,17 @@ func (r *VCenterRunner) storeVMwareVMData(ctx context.Context, vmData assetDomai
 		return fmt.Errorf("invalid asset UUID: %w", err)
 	}
 
+	var assetIdsList []assetDomain.AssetUUID
+	assetIdsList = append(assetIdsList, assetID)
+
 	// Check if the asset exists
-	asset, err := r.assetRepo.GetByID(ctx, assetID)
+	assets, err := r.assetRepo.GetByIDs(ctx, assetIdsList)
 	if err != nil {
 		log.Printf("[VCenterScanner] Error retrieving asset: %v", err)
 		return fmt.Errorf("error checking asset existence: %w", err)
 	}
 
-	if asset == nil {
+	if len(assets) == 0 {
 		log.Printf("[VCenterScanner] Asset with ID %s does not exist, cannot store VM data", vmData.AssetID)
 		return fmt.Errorf("asset with ID %s does not exist", vmData.AssetID)
 	}

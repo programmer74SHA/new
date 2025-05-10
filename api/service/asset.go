@@ -122,8 +122,8 @@ func (s *AssetService) CreateAsset(ctx context.Context, req *pb.CreateAssetReque
 	ips := make([]domain.AssetIP, 0, len(req.GetAssetIps()))
 	for _, ip := range req.GetAssetIps() {
 		ips = append(ips, domain.AssetIP{
-			AssetID:    id,
-			IPAddress:  ip.GetIp(),
+			AssetID:    id.String(),
+			IP:         ip.GetIp(),
 			MACAddress: ip.GetMacAddress(),
 		})
 	}
@@ -182,8 +182,8 @@ func (s *AssetService) UpdateAsset(ctx context.Context, req *pb.UpdateAssetReque
 	ips := make([]domain.AssetIP, 0, len(req.GetAssetIps()))
 	for _, ip := range req.GetAssetIps() {
 		ips = append(ips, domain.AssetIP{
-			AssetID:    assetUUID,
-			IPAddress:  ip.GetIp(),
+			AssetID:    assetUUID.String(),
+			IP:         ip.GetIp(),
 			MACAddress: ip.GetMacAddress(),
 		})
 	}
@@ -252,6 +252,30 @@ func (s *AssetService) DeleteAssets(ctx context.Context, assetUUIDs []uuid.UUID)
 	}, nil
 }
 
+// DeleteAllAssets deletes all assets in the system
+func (s *AssetService) DeleteAllAssets(ctx context.Context) (*pb.DeleteAssetsResponse, error) {
+	err := s.service.DeleteAllAssets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.DeleteAssetsResponse{
+		Success: true,
+	}, nil
+}
+
+// DeleteAllAssetsWithFilters deletes all assets matching the provided filters
+func (s *AssetService) DeleteAllAssetsWithFilters(ctx context.Context, filter domain.AssetFilters) (*pb.DeleteAssetsResponse, error) {
+	err := s.service.DeleteAllAssetsWithFilters(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.DeleteAssetsResponse{
+		Success: true,
+	}, nil
+}
+
 func (s *AssetService) ExportAssets(ctx context.Context, req *pb.ExportAssetsRequest) ([]byte, error) {
 	assetUUIDs := []domain.AssetUUID{}
 
@@ -294,6 +318,18 @@ func (s *AssetService) ExportAssets(ctx context.Context, req *pb.ExportAssetsReq
 	return csvData, nil
 }
 
+// GetDistinctOSNames returns a list of all distinct OS names from assets
+func (s *AssetService) GetDistinctOSNames(ctx context.Context, req *pb.GetDistinctOSNamesRequest) (*pb.GetDistinctOSNamesResponse, error) {
+	osNames, err := s.service.GetDistinctOSNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.GetDistinctOSNamesResponse{
+		OsNames: osNames,
+	}, nil
+}
+
 func domainToPbAsset(asset domain.AssetDomain) *pb.Asset {
 	// Convert ports to protobuf format
 	pbPorts := make([]*pb.Port, 0, len(asset.Ports))
@@ -331,8 +367,8 @@ func domainToPbAsset(asset domain.AssetDomain) *pb.Asset {
 	pbAssetIPs := make([]*pb.AssetIP, 0, len(asset.AssetIPs))
 	for _, ip := range asset.AssetIPs {
 		pbAssetIPs = append(pbAssetIPs, &pb.AssetIP{
-			AssetId: ip.AssetID.String(),
-			// Ip:         ip.IPAddress,
+			AssetId: ip.AssetID,
+			// Ip:         ip.IP,
 			MacAddress: ip.MACAddress,
 		})
 	}
