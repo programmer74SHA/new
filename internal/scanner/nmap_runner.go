@@ -177,7 +177,7 @@ func (r *NmapRunner) processNmapResults(ctx context.Context, nmapRun nmapDomain.
 			hostname = host.Hostnames.Hostname[0].Name
 		}
 
-		// Create new asset with IP in the IPs array
+		// Create new asset with IP in the AssetIPs array
 		asset := assetDomain.AssetDomain{
 			ID:          uuid.New(),
 			Name:        hostname,
@@ -186,6 +186,16 @@ func (r *NmapRunner) processNmapResults(ctx context.Context, nmapRun nmapDomain.
 			Description: fmt.Sprintf("Discovered by Nmap scan (Job ID: %d)", scanJobID),
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
+			AssetIPs:    make([]assetDomain.AssetIP, 0), // Initialize AssetIPs
+		}
+
+		// Add the IP address to AssetIPs
+		if ipAddress != "" {
+			asset.AssetIPs = append(asset.AssetIPs, assetDomain.AssetIP{
+				AssetID:    asset.ID.String(),
+				IP:         ipAddress,
+				MACAddress: "",
+			})
 		}
 
 		// Detect OS if available

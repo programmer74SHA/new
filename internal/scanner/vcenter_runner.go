@@ -313,7 +313,20 @@ func extractOSInfo(fullOSName string) (osName string, osVersion string) {
 
 // processVM processes a single VM and stores it as an asset
 func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, vm mo.VirtualMachine, scanJobID int64) error {
-	log.Printf("[VCenterScanner] Processing VM: %s", vm.Name)
+	// Validate VM name first
+	vmName := strings.TrimSpace(vm.Name)
+	if vmName == "" {
+		log.Printf("[VCenterScanner] ERROR: VM has empty name, trying to get from Config")
+		if vm.Config != nil && vm.Config.Name != "" {
+			vmName = strings.TrimSpace(vm.Config.Name)
+			log.Printf("[VCenterScanner] Using name from Config: %s", vmName)
+		} else {
+			log.Printf("[VCenterScanner] ERROR: VM still has empty name even from Config, skipping")
+			return fmt.Errorf("VM has empty name")
+		}
+	}
+
+	log.Printf("[VCenterScanner] Processing VM: '%s' (length: %d)", vmName, len(vmName))
 
 	// We'll collect IP addresses from all network interfaces
 	var ipAddresses []string
@@ -322,18 +335,18 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 	// Extract guest info
 	if vm.Guest != nil {
 		hostname = vm.Guest.HostName
-		log.Printf("[VCenterScanner] VM %s - Guest hostname: %s", vm.Name, hostname)
+		log.Printf("[VCenterScanner] VM %s - Guest hostname: %s", vmName, hostname)
 
 		// Primary IP
 		if vm.Guest.IpAddress != "" {
 			ipAddresses = append(ipAddresses, vm.Guest.IpAddress)
-			log.Printf("[VCenterScanner] VM %s - Primary IP: %s", vm.Name, vm.Guest.IpAddress)
+			log.Printf("[VCenterScanner] VM %s - Primary IP: %s", vmName, vm.Guest.IpAddress)
 		}
 
 		// Additional IPs from network interfaces
 		if vm.Guest.Net != nil {
 			for _, net := range vm.Guest.Net {
-				log.Printf("[VCenterScanner] VM %s - Network adapter: %s", vm.Name, net.Network)
+				log.Printf("[VCenterScanner] VM %s - Network adapter: %s", vmName, net.Network)
 				for _, ip := range net.IpAddress {
 					// Check if this IP is already in our list
 					alreadyAdded := false
@@ -347,12 +360,12 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 					if !alreadyAdded {
 						// Skip IPv6 addresses (optional - remove if you want IPv6)
 						if strings.Contains(ip, ":") {
-							log.Printf("[VCenterScanner] VM %s - Skipping IPv6 address: %s", vm.Name, ip)
+							log.Printf("[VCenterScanner] VM %s - Skipping IPv6 address: %s", vmName, ip)
 							continue
 						}
 
 						ipAddresses = append(ipAddresses, ip)
-						log.Printf("[VCenterScanner] VM %s - Additional IP: %s", vm.Name, ip)
+						log.Printf("[VCenterScanner] VM %s - Additional IP: %s", vmName, ip)
 					}
 				}
 			}
@@ -361,16 +374,8 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 
 	// Use name as hostname if guest hostname is not available
 	if hostname == "" {
-		hostname = vm.Name
-		log.Printf("[VCenterScanner] VM %s - Using VM name as hostname", vm.Name)
-	}
-
-	// If no IP addresses found, use a placeholder IP
-	if len(ipAddresses) == 0 {
-		// Use a placeholder IP for VMs without IPs (often powered off VMs)
-		placeholder := fmt.Sprintf("0.0.0.0-%s", vm.Config.InstanceUuid)
-		ipAddresses = append(ipAddresses, placeholder)
-		log.Printf("[VCenterScanner] VM %s - No real IPs found, using placeholder: %s", vm.Name, placeholder)
+		hostname = vmName
+		log.Printf("[VCenterScanner] VM %s - Using VM name as hostname", vmName)
 	}
 
 	// Get power state
@@ -380,49 +385,73 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 	} else if vm.Runtime.PowerState == "suspended" {
 		powerState = "Suspended"
 	}
-	log.Printf("[VCenterScanner] VM %s - Power state: %s", vm.Name, powerState)
+	log.Printf("[VCenterScanner] VM %s - Power state: %s", vmName, powerState)
 
 	// Get OS info
 	var fullOSName string
 	if vm.Guest != nil && vm.Guest.GuestFullName != "" {
 		fullOSName = vm.Guest.GuestFullName
-		log.Printf("[VCenterScanner] VM %s - OS (from Guest): %s", vm.Name, fullOSName)
+		log.Printf("[VCenterScanner] VM %s - OS (from Guest): %s", vmName, fullOSName)
 	} else if vm.Config != nil && vm.Config.GuestFullName != "" {
 		fullOSName = vm.Config.GuestFullName
-		log.Printf("[VCenterScanner] VM %s - OS (from Config): %s", vm.Name, fullOSName)
+		log.Printf("[VCenterScanner] VM %s - OS (from Config): %s", vmName, fullOSName)
 	} else {
 		fullOSName = "Unknown"
 	}
 
 	// Extract OS name and version
 	osName, osVersion := extractOSInfo(fullOSName)
-	log.Printf("[VCenterScanner] VM %s - Parsed OS: %s, Version: %s", vm.Name, osName, osVersion)
+	log.Printf("[VCenterScanner] VM %s - Parsed OS: %s, Version: %s", vmName, osName, osVersion)
 
 	// Create a new asset record
 	assetID := uuid.New()
 	asset := assetDomain.AssetDomain{
-		ID:       assetID,
-		Name:     vm.Name,
-		Hostname: hostname,
-		// IPs:         ipAddresses,
+		ID:          assetID,
+		Name:        vmName, // Use the validated VM name
+		Hostname:    hostname,
 		OSName:      osName,
 		OSVersion:   osVersion,
 		Type:        "Virtual",
 		Description: fmt.Sprintf("VMware virtual machine discovered by vCenter scan (Job ID: %d)", scanJobID),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
+		AssetIPs:    make([]assetDomain.AssetIP, 0), // Initialize AssetIPs
 	}
 
-	log.Printf("[VCenterScanner] Creating asset for VM %s with ID %s", vm.Name, assetID)
+	// Validate that Name is set before continuing
+	if asset.Name == "" {
+		log.Printf("[VCenterScanner] ERROR: Asset name is empty after setting, this shouldn't happen!")
+		return fmt.Errorf("asset name is empty")
+	}
+
+	// Add IP addresses to AssetIPs
+	for _, ip := range ipAddresses {
+		asset.AssetIPs = append(asset.AssetIPs, assetDomain.AssetIP{
+			AssetID:    asset.ID.String(),
+			IP:         ip,
+			MACAddress: "", // vCenter doesn't provide MAC address in this context
+		})
+	}
+
+	log.Printf("[VCenterScanner] Creating asset for VM '%s' with ID %s and %d IPs (Name field: '%s')",
+		vmName, assetID, len(asset.AssetIPs), asset.Name)
+
+	// Log the asset details before storing
+	log.Printf("[VCenterScanner] Asset to be stored - Name: '%s', Hostname: '%s', Type: '%s'",
+		asset.Name, asset.Hostname, asset.Type)
 
 	// Store the asset
 	var err error
 	var storedAssetID assetDomain.AssetUUID
+	var isNewAsset bool = true
 
 	// We'll retry a few times in case of transient issues
 	for retries := 0; retries < 3; retries++ {
+		log.Printf("[VCenterScanner] Attempting to create asset (retry %d) - Name: '%s'", retries, asset.Name)
 		storedAssetID, err = r.assetRepo.Create(ctx, asset)
 		if err == nil {
+			isNewAsset = true
+			log.Printf("[VCenterScanner] Successfully created new asset with ID: %s, Name: '%s'", storedAssetID, asset.Name)
 			break
 		}
 
@@ -436,19 +465,46 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 			}
 
 			// If we have IPs, search by the first one
-			if len(ipAddresses) > 0 && ipAddresses[0] != "" && !strings.HasPrefix(ipAddresses[0], "0.0.0.0") {
+			if len(ipAddresses) > 0 && ipAddresses[0] != "" {
 				filter.IP = ipAddresses[0]
 			}
 
 			existingAssets, err := r.assetRepo.Get(ctx, filter)
 			if err == nil && len(existingAssets) > 0 {
-				// Use the first matching asset
-				storedAssetID = existingAssets[0].ID
-				log.Printf("[VCenterScanner] VM %s - Found existing asset with ID: %s", vm.Name, storedAssetID)
-				break
+				// Update the existing asset with new information
+				existingAsset := existingAssets[0]
+				storedAssetID = existingAsset.ID
+				isNewAsset = false
+
+				log.Printf("[VCenterScanner] VM %s - Found existing asset with ID: %s, current name: '%s'",
+					vmName, storedAssetID, existingAsset.Name)
+
+				// Update the existing asset with the latest information
+				existingAsset.Name = vmName // Use the validated VM name
+				existingAsset.Hostname = hostname
+				existingAsset.OSName = osName
+				existingAsset.OSVersion = osVersion
+				existingAsset.Type = "Virtual"
+				existingAsset.Description = fmt.Sprintf("VMware virtual machine discovered by vCenter scan (Job ID: %d)", scanJobID)
+				existingAsset.UpdatedAt = time.Now()
+				existingAsset.AssetIPs = asset.AssetIPs // Update IP addresses
+
+				log.Printf("[VCenterScanner] VM %s - Updating asset with Name='%s', Hostname='%s'",
+					vmName, existingAsset.Name, existingAsset.Hostname)
+
+				// Update the asset in the database
+				err = r.assetRepo.Update(ctx, existingAsset)
+				if err != nil {
+					log.Printf("[VCenterScanner] VM %s - Error updating existing asset: %v", vmName, err)
+					// Continue with retry
+				} else {
+					log.Printf("[VCenterScanner] VM %s - Successfully updated existing asset with ID: %s (Name: '%s')",
+						vmName, storedAssetID, existingAsset.Name)
+					break
+				}
 			}
 
-			// If we couldn't find an existing asset, try with a new ID
+			// If we couldn't find or update an existing asset, try with a new ID
 			assetID = uuid.New()
 			asset.ID = assetID
 			log.Printf("[VCenterScanner] VM %s - Retrying with new asset ID: %s", vm.Name, assetID)
@@ -459,8 +515,8 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 		}
 	}
 
-	if err != nil {
-		log.Printf("[VCenterScanner] Failed to create asset after retries: %v", err)
+	if err != nil && !isNewAsset {
+		log.Printf("[VCenterScanner] Failed to create or update asset after retries: %v", err)
 		return err
 	}
 
@@ -508,11 +564,11 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 		}
 	}
 
-	// Create VMware VM record
+	// Create VMware VM record with validated VM name
 	vmRecord := assetDomain.VMwareVM{
 		VMID:         vm.Config.InstanceUuid,
 		AssetID:      storedAssetID.String(),
-		VMName:       vm.Name,
+		VMName:       vmName, // Use the validated VM name
 		Hypervisor:   hypervisor,
 		CPUCount:     cpuCount,
 		MemoryMB:     memoryMB,
@@ -521,9 +577,11 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 		LastSyncedAt: time.Now(),
 	}
 
+	log.Printf("[VCenterScanner] Storing VMware VM data - VMName: '%s', AssetID: %s", vmRecord.VMName, storedAssetID)
+
 	// Store VMware VM data
 	if err := r.storeVMwareVMData(ctx, vmRecord); err != nil {
-		log.Printf("[VCenterScanner] Error storing VMware VM data: %v", err)
+		log.Printf("[VCenterScanner] Error storing VMware VM data for %s: %v", vm.Name, err)
 		// Continue processing - this is supplementary data
 	}
 
@@ -533,12 +591,12 @@ func (r *VCenterRunner) processVM(ctx context.Context, client *govmomi.Client, v
 
 // Helper method to store VMware VM data
 func (r *VCenterRunner) storeVMwareVMData(ctx context.Context, vmData assetDomain.VMwareVM) error {
-	log.Printf("[VCenterScanner] Storing VM data for %s to database", vmData.VMName)
+	log.Printf("[VCenterScanner] Storing VM data for '%s' to database (Asset ID: %s)", vmData.VMName, vmData.AssetID)
 
 	// First, verify that the asset exists in the assets table
 	assetID, err := assetDomain.AssetUUIDFromString(vmData.AssetID)
 	if err != nil {
-		log.Printf("[VCenterScanner] Invalid asset UUID format: %v", err)
+		log.Printf("[VCenterScanner] Invalid asset UUID format for VM %s: %v", vmData.VMName, err)
 		return fmt.Errorf("invalid asset UUID: %w", err)
 	}
 
@@ -548,23 +606,28 @@ func (r *VCenterRunner) storeVMwareVMData(ctx context.Context, vmData assetDomai
 	// Check if the asset exists
 	assets, err := r.assetRepo.GetByIDs(ctx, assetIdsList)
 	if err != nil {
-		log.Printf("[VCenterScanner] Error retrieving asset: %v", err)
+		log.Printf("[VCenterScanner] Error retrieving asset for VM %s: %v", vmData.VMName, err)
 		return fmt.Errorf("error checking asset existence: %w", err)
 	}
 
 	if len(assets) == 0 {
-		log.Printf("[VCenterScanner] Asset with ID %s does not exist, cannot store VM data", vmData.AssetID)
+		log.Printf("[VCenterScanner] Asset with ID %s does not exist for VM %s, cannot store VM data", vmData.AssetID, vmData.VMName)
 		return fmt.Errorf("asset with ID %s does not exist", vmData.AssetID)
+	}
+
+	// Ensure the VM name is properly set before storing
+	if vmData.VMName == "" {
+		log.Printf("[VCenterScanner] Warning: VM name is empty for VM ID %s, this shouldn't happen", vmData.VMID)
 	}
 
 	// Now we know the asset exists, proceed with storing VM data
 	err = r.assetRepo.StoreVMwareVM(ctx, vmData)
 	if err != nil {
-		log.Printf("[VCenterScanner] Error storing VM data in database: %v", err)
+		log.Printf("[VCenterScanner] Error storing VM data for %s in database: %v", vmData.VMName, err)
 		return err
 	}
 
-	log.Printf("[VCenterScanner] Successfully stored VM data for %s (VM ID: %s, Asset ID: %s)",
+	log.Printf("[VCenterScanner] Successfully stored VM data for '%s' (VM ID: %s, Asset ID: %s)",
 		vmData.VMName, vmData.VMID, vmData.AssetID)
 	return nil
 }

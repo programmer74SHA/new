@@ -12,26 +12,46 @@ func CalculateNextRunTime(schedule scannerDomain.Schedule, from time.Time) time.
 	log.Printf("Calculating next run time from %v with frequency %d %s",
 		from, schedule.FrequencyValue, schedule.FrequencyUnit)
 
-	// Start with the reference time
-	nextRun := from
-
-	// For minute and hour frequencies, simply add the duration to the current time
-	// This preserves all time components exactly as they are
+	// For minute frequencies, simply add the duration
 	if schedule.FrequencyUnit == "minute" {
-		nextRun = from.Add(time.Duration(schedule.FrequencyValue) * time.Minute)
+		nextRun := from.Add(time.Duration(schedule.FrequencyValue) * time.Minute)
 		log.Printf("Added %d minutes to %v, result: %v", schedule.FrequencyValue, from, nextRun)
 		return nextRun
 	}
 
+	// For hour frequencies with a specific minute set
+	if schedule.FrequencyUnit == "hour" && schedule.Minute >= 0 && schedule.Minute < 60 {
+		// Calculate the next occurrence at the specified minute
+		nextRun := time.Date(
+			from.Year(),
+			from.Month(),
+			from.Day(),
+			from.Hour(),
+			int(schedule.Minute),
+			0, 0,
+			from.Location(),
+		)
+
+		// If we've already passed this minute in the current hour, move to the next hour
+		if !nextRun.After(from) {
+			nextRun = nextRun.Add(time.Duration(schedule.FrequencyValue) * time.Hour)
+		}
+
+		log.Printf("Calculated hourly run at minute %d: %v", schedule.Minute, nextRun)
+		return nextRun
+	}
+
+	// For hour frequencies without a specific minute
 	if schedule.FrequencyUnit == "hour" {
-		nextRun = from.Add(time.Duration(schedule.FrequencyValue) * time.Hour)
+		nextRun := from.Add(time.Duration(schedule.FrequencyValue) * time.Hour)
 		log.Printf("Added %d hours to %v, result: %v", schedule.FrequencyValue, from, nextRun)
 		return nextRun
 	}
 
-	// If specific hour and minute are provided, use those for scheduling
-	if schedule.Hour >= 0 && schedule.Minute >= 0 {
-		// Set the specific hour and minute, but keep the current day
+	var nextRun time.Time
+
+	// For day/week/month frequencies with specific hour and minute
+	if schedule.Hour >= 0 && schedule.Hour < 24 && schedule.Minute >= 0 && schedule.Minute < 60 {
 		nextRun = time.Date(
 			from.Year(),
 			from.Month(),
@@ -42,8 +62,8 @@ func CalculateNextRunTime(schedule scannerDomain.Schedule, from time.Time) time.
 			from.Location(),
 		)
 
-		// If this time is already in the past for today, add the appropriate frequency
-		if nextRun.Before(from) {
+		// If this time has already passed today, move to the next occurrence
+		if !nextRun.After(from) {
 			switch schedule.FrequencyUnit {
 			case "day":
 				nextRun = nextRun.AddDate(0, 0, int(schedule.FrequencyValue))
@@ -63,8 +83,6 @@ func CalculateNextRunTime(schedule scannerDomain.Schedule, from time.Time) time.
 		case "month":
 			nextRun = from.AddDate(0, int(schedule.FrequencyValue), 0)
 		default:
-			// This is a fallback in case the frequency unit is invalid or empty
-			// We'll default to a 24-hour interval to prevent immediate rescheduling
 			log.Printf("Warning: Unrecognized frequency unit '%s', defaulting to 24h interval", schedule.FrequencyUnit)
 			nextRun = from.Add(24 * time.Hour)
 		}
