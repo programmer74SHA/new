@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option go_package = "gitlab.apk-group.net/siem/backend/asset-discovery/api/pb";
+
+message ExportAssetsRequest {
+  repeated string asset_ids = 1;
+  ExportType export_type = 2;
+  repeated string selected_columns = 3;
+}
+
+message ExportJobDiffRequest {
+  int64 newer_job_id = 1;
+  int64 older_job_id = 2;
+}
+
+enum ExportType {
+  FULL_EXPORT = 0;
+  SELECTED_COLUMNS = 1;
+}
