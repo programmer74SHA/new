@@ -17,11 +17,12 @@ type Scanner struct {
 	UserID    *string    `gorm:"column:user_id;size:100"`
 	DeletedAt *time.Time `gorm:"column:deleted_at;type:datetime"`
 
-	NmapMetadatas    []NmapMetadata    `gorm:"foreignKey:ScannerID"`
-	DomainMetadatas  []DomainMetadata  `gorm:"foreignKey:ScannerID"`
-	VCenterMetadatas []VcenterMetadata `gorm:"foreignKey:ScannerID"`
-	Schedules        []Schedule        `gorm:"foreignKey:ScannerID"`
-	ScanJob          ScanJob           `gorm:"foreignKey:ScannerID"`
+	NmapMetadatas     []NmapMetadata     `gorm:"foreignKey:ScannerID"`
+	DomainMetadatas   []DomainMetadata   `gorm:"foreignKey:ScannerID"`
+	VCenterMetadatas  []VcenterMetadata  `gorm:"foreignKey:ScannerID"`
+	FirewallMetadatas []FirewallMetadata `gorm:"foreignKey:ScannerID"` // Add this line
+	Schedules         []Schedule         `gorm:"foreignKey:ScannerID"`
+	ScanJob           ScanJob            `gorm:"foreignKey:ScannerID"`
 }
 
 func (Scanner) TableName() string {
@@ -96,13 +97,7 @@ type VcenterMetadata struct {
 	Password  string `gorm:"column:password;size:200;not null"`
 }
 
-type FirewallMetadata struct {
-	ID        int64  `gorm:"column:id;primaryKey"`
-	ScannerID int64  `gorm:"column:scanner_id;not null"`
-	IP        string `gorm:"column:ip;size:50;not null"`
-	Port      string `gorm:"column:port;size:50;not null"`
-	ApiKey    string `gorm:"column:username;size:50;not null"`
-}
+
 
 type FortigateResponse struct {
 	Results []json.RawMessage `json:"results"`
@@ -204,3 +199,13 @@ type FortigateClient struct {
 	baseURL    string
 	apiKey     string
 }
+
+type FirewallMetadata struct {
+	ID        int64  `gorm:"column:id;primaryKey;autoIncrement"`
+	ScannerID int64  `gorm:"column:scanner_id;not null"`
+	IP        string `gorm:"column:ip;size:50;not null"`
+	Port      string `gorm:"column:port;size:50;not null"`
+	ApiKey    string `gorm:"column:api_key;size:200;not null"` // Fixed column name
+}
+
+

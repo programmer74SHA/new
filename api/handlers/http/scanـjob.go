@@ -9,7 +9,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/api/pb"
 	"gitlab.apk-group.net/siem/backend/asset-discovery/api/service"
-	"gitlab.apk-group.net/siem/backend/asset-discovery/internal/scheduler"
 )
 
 // GetScanJobs retrieves scan jobs based on filter, pagination, and sorting
@@ -75,10 +74,10 @@ func CancelScanJob(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handl
 	return func(c *fiber.Ctx) error {
 		srv := svcGetter(c.UserContext())
 
-		// Get job ID from URL parameter
+		// Get scan job ID from URL parameter
 		id := c.Params("id")
 		if id == "" {
-			log.Printf("Cancel scan job: Job ID is empty")
+			log.Printf("Cancel scan job: Scan job ID is empty")
 			return fiber.ErrBadRequest
 		}
 
@@ -92,8 +91,8 @@ func CancelScanJob(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handl
 		// Call the service to cancel the scan job
 		response, err := srv.CancelScanJob(c.UserContext(), req)
 		if err != nil {
-			if errors.Is(err, scheduler.ErrScanJobNotRunning) {
-				return fiber.NewError(fiber.StatusNotFound, "Scan job is not running")
+			if errors.Is(err, service.ErrScanJobNotFound) {
+				return fiber.ErrNotFound
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}

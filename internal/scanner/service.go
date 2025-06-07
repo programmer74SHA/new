@@ -133,6 +133,11 @@ func (s *scannerService) validateScanner(scanner *domain.ScannerDomain) error {
 			return err
 		}
 
+	case domain.ScannerTypeFirewall:
+		if err := s.validateFirewallScanner(*scanner); err != nil {
+			return err
+		}
+
 	default:
 		return fmt.Errorf("invalid scanner type: %s", scanner.ScanType)
 	}
@@ -457,6 +462,9 @@ func (s *scannerService) mergeScanner(existing, incoming domain.ScannerDomain) d
 	if incoming.Password != "" {
 		merged.Password = incoming.Password
 	}
+	if incoming.ApiKey != "" { // Add this line
+		merged.ApiKey = incoming.ApiKey
+	}
 	if incoming.Domain != "" {
 		merged.Domain = incoming.Domain
 	}
@@ -528,14 +536,22 @@ func (s *scannerService) validateScannerForUpdate(scanner domain.ScannerDomain) 
 		if err := s.validateNmapScanner(scanner); err != nil {
 			return err
 		}
+
 	case domain.ScannerTypeVCenter:
 		if err := s.validateVCenterScanner(scanner); err != nil {
 			return err
 		}
+
 	case domain.ScannerTypeDomain:
 		if err := s.validateDomainScanner(scanner); err != nil {
 			return err
 		}
+
+	case domain.ScannerTypeFirewall:
+		if err := s.validateFirewallScanner(scanner); err != nil {
+			return err
+		}
+
 	default:
 		return fmt.Errorf("invalid scanner type: %s", scanner.ScanType)
 	}
@@ -547,6 +563,19 @@ func (s *scannerService) validateScannerForUpdate(scanner domain.ScannerDomain) 
 		}
 	}
 
+	return nil
+}
+
+func (s *scannerService) validateFirewallScanner(scanner domain.ScannerDomain) error {
+	if scanner.IP == "" {
+		return fmt.Errorf("Firewall scanner requires IP address")
+	}
+	if scanner.Port == "" {
+		return fmt.Errorf("Firewall scanner requires port")
+	}
+	if scanner.ApiKey == "" {
+		return fmt.Errorf("Firewall scanner requires API key")
+	}
 	return nil
 }
 

@@ -174,6 +174,12 @@ func (s *schedulerService) ExecuteScheduledScan(ctx context.Context, scheduledSc
 			} else {
 				scanErr = s.domainScanner.ExecuteDomainScan(bgCtx, scanner, jobID)
 			}
+		case strings.ToUpper(scannerDomain.ScannerTypeFirewall):
+			if s.firewallScanner == nil {
+				scanErr = fmt.Errorf("FirewallScanner implementation is nil")
+			} else {
+				scanErr = s.firewallScanner.ExecuteFirewallScan(bgCtx, scanner, jobID)
+			}
 		default:
 			scanErr = fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
 		}
@@ -275,6 +281,12 @@ func (s *schedulerService) CancelScanJob(ctx context.Context, jobID int64) error
 			return fmt.Errorf("DomainScanner implementation is nil")
 		}
 		cancelled = s.domainScanner.CancelScan(jobID)
+	case strings.ToUpper(scannerDomain.ScannerTypeFirewall):
+		if s.firewallScanner == nil {
+			log.Printf("Scheduler Service: FirewallScanner implementation is nil")
+			return fmt.Errorf("FirewallScanner implementation is nil")
+		}
+		cancelled = s.firewallScanner.CancelScan(jobID)
 	default:
 		log.Printf("Scheduler Service: Unknown scanner type %s for job ID %d", job.Type, jobID)
 		return fmt.Errorf("unknown scanner type: %s", job.Type)
@@ -355,6 +367,12 @@ func (s *schedulerService) ExecuteManualScan(ctx context.Context, scanner scanne
 			return fmt.Errorf("DomainScanner implementation is nil")
 		}
 		return s.domainScanner.ExecuteDomainScan(ctx, scanner, jobID)
+	case strings.ToUpper(scannerDomain.ScannerTypeFirewall):
+		log.Printf("Scheduler Service: Executing Firewall manual scan for job ID: %d", jobID)
+		if s.firewallScanner == nil {
+			return fmt.Errorf("FirewallScanner implementation is nil")
+		}
+		return s.firewallScanner.ExecuteFirewallScan(ctx, scanner, jobID)
 	default:
 		return fmt.Errorf("unsupported scanner type: %s", scanner.ScanType)
 	}

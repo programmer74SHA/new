@@ -153,6 +153,8 @@ func (r *scannerRepo) Create(ctx context.Context, scanner domain.ScannerDomain) 
 		err = r.createVcenterData(db, scannerID, scanner)
 	case domain.ScannerTypeDomain:
 		err = r.createDomainData(db, scannerID, scanner)
+	case domain.ScannerTypeFirewall:
+		err = r.createFirewallData(db, scannerID, scanner)
 	}
 
 	if err != nil {
@@ -391,6 +393,8 @@ func (r *scannerRepo) List(ctx context.Context, filter domain.ScannerFilter, pag
 			_ = r.LoadVcenterData(ctx, &scanner)
 		case domain.ScannerTypeDomain:
 			_ = r.LoadDomainData(ctx, &scanner)
+		case domain.ScannerTypeFirewall:
+			_ = r.LoadFirewallData(ctx, &scanner)
 		}
 
 		// Load schedule with schedule type and handle nullable RunTime
@@ -647,6 +651,8 @@ func (r *scannerRepo) Update(ctx context.Context, scanner domain.ScannerDomain) 
 		err = r.updateVcenterData(db, scanner)
 	case domain.ScannerTypeDomain:
 		err = r.updateDomainData(db, scanner)
+	case domain.ScannerTypeFirewall:
+		err = r.updateFirewallData(db, scanner)
 	}
 
 	if err != nil {
@@ -806,6 +812,10 @@ func (r *scannerRepo) GetByID(ctx context.Context, scannerID int64) (*domain.Sca
 		}
 	case domain.ScannerTypeDomain:
 		if err := r.LoadDomainData(ctx, domainScanner); err != nil {
+			return nil, err
+		}
+	case domain.ScannerTypeFirewall:
+		if err := r.LoadFirewallData(ctx, domainScanner); err != nil {
 			return nil, err
 		}
 	}
@@ -1012,4 +1022,52 @@ func (r *scannerRepo) UpdateScannerStatus(ctx context.Context, params domain.Sta
 
 	log.Printf("Repository: Successfully updated %d scanners", result.RowsAffected)
 	return int(result.RowsAffected), nil
+}
+
+// Helper method for creating Firewall related data
+func (r *scannerRepo) createFirewallData(db *gorm.DB, scannerID int64, scanner domain.ScannerDomain) error {
+	firewallMetadata := &types.FirewallMetadata{
+		ScannerID: scannerID,
+		IP:        scanner.IP,
+		Port:      scanner.Port,
+		ApiKey:    scanner.ApiKey,
+	}
+
+	return db.Table("firewall_metadata").Create(firewallMetadata).Error
+}
+
+// Helper method for updating Firewall related data
+func (r *scannerRepo) updateFirewallData(db *gorm.DB, scanner domain.ScannerDomain) error {
+	// Get existing Firewall metadata
+	var firewallMetadata types.FirewallMetadata
+	if err := db.Table("firewall_metadata").Where("scanner_id = ?", scanner.ID).First(&firewallMetadata).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new Firewall metadata if it doesn't exist
+			return r.createFirewallData(db, scanner.ID, scanner)
+		}
+		return err
+	}
+
+	// Update Firewall metadata
+	firewallMetadata.IP = scanner.IP
+	firewallMetadata.Port = scanner.Port
+	firewallMetadata.ApiKey = scanner.ApiKey
+
+	return db.Table("firewall_metadata").Where("id = ?", firewallMetadata.ID).Updates(firewallMetadata).Error
+}
+
+// Helper method to load Firewall related data
+func (r *scannerRepo) LoadFirewallData(ctx context.Context, scanner *domain.ScannerDomain) error {
+	var firewallMetadata types.FirewallMetadata
+	if err := r.db.WithContext(ctx).Table("firewall_metadata").
+		Where("scanner_id = ?", scanner.ID).
+		First(&firewallMetadata).Error; err != nil {
+		return err
+	}
+
+	scanner.IP = firewallMetadata.IP
+	scanner.Port = firewallMetadata.Port
+	scanner.ApiKey = firewallMetadata.ApiKey
+
+	return nil
 }

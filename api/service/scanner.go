@@ -631,6 +631,7 @@ func mapDomainToProto(scanner *domain.ScannerDomain) *pb.Scanner {
 		Port:               scanner.Port,
 		Username:           scanner.Username,
 		Password:           scanner.Password,
+		ApiKey:             scanner.ApiKey,
 		Domain:             scanner.Domain,
 		AuthenticationType: scanner.AuthenticationType,
 		Protocol:           scanner.Protocol,

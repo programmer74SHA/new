@@ -355,6 +355,7 @@ func ListScanners(svcGetter ServiceGetter[*service.ScannerService]) fiber.Handle
 }
 
 // formatTargetField creates a consolidated target string based on scanner properties and scanner type
+
 func formatTargetField(scanner *pb.Scanner) string {
 	// Handle formatting based on scanner type
 	switch scanner.ScanType {
@@ -392,6 +393,15 @@ func formatTargetField(scanner *pb.Scanner) string {
 		} else if scanner.Domain != "" {
 			return scanner.Domain
 		} else if scanner.Ip != "" {
+			if scanner.Port != "" {
+				return fmt.Sprintf("%s:%s", scanner.Ip, scanner.Port)
+			}
+			return scanner.Ip
+		}
+		return ""
+	case "FIREWALL":
+		// For Firewall scanners, format as IP:Port
+		if scanner.Ip != "" {
 			if scanner.Port != "" {
 				return fmt.Sprintf("%s:%s", scanner.Ip, scanner.Port)
 			}
