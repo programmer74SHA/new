@@ -129,7 +129,7 @@ func NewApp(cfg config.Config) (AppContainer, error) {
 	a.nmapScanner = scanner.NewNmapRunner(assetRepo)
 	a.vcenterScanner = scanner.NewVCenterRunner(assetRepo)
 	a.domainScanner = scanner.NewDomainRunner(assetRepo)
-	a.firewallScanner = scanner.NewFirewallRunner(assetRepo) // Initialize firewall scanner
+	a.firewallScanner = scanner.NewFirewallRunner(assetRepo)
 
 	// Log scanner initialization to help with debugging
 	if a.nmapScanner == nil {

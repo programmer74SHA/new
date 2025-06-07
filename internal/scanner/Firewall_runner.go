@@ -12,10 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	assetDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/asset/domain"
-	assetPort "gitlab.apk-group.net/siem/backend/asset-discovery/internal/asset/port"
 	scannerDomain "gitlab.apk-group.net/siem/backend/asset-discovery/internal/scanner/domain"
+	"gitlab.apk-group.net/siem/backend/asset-discovery/pkg/adapter/storage"
 )
 
 // FortiGate API response structures
@@ -75,25 +73,31 @@ type PolicyInterface struct {
 	Name string `json:"name"`
 }
 
+type Address struct {
+	Name   string `json:"name"`
+	Subnet string `json:"subnet"`
+	Type   string `json:"type"`
+}
+
 type Service struct {
 	Name string `json:"name"`
 }
 
 // FirewallRunner handles executing firewall scans
 type FirewallRunner struct {
-	assetRepo     assetPort.Repo
+	firewallRepo  *storage.FirewallRepo
 	cancelManager *ScanCancelManager
 }
 
-// NewFirewallRunner creates a new firewall runner with asset repository
-func NewFirewallRunner(assetRepo assetPort.Repo) *FirewallRunner {
+// NewFirewallRunner creates a new firewall runner with firewall repository
+func NewFirewallRunner(firewallRepo *storage.FirewallRepo) *FirewallRunner {
 	return &FirewallRunner{
-		assetRepo:     assetRepo,
+		firewallRepo:  firewallRepo,
 		cancelManager: NewScanCancelManager(),
 	}
 }
 
-// ExecuteFirewallScan runs a firewall scan and stores discovered interfaces as assets
+// ExecuteFirewallScan runs a firewall scan and stores discovered data in firewall tables
 func (r *FirewallRunner) ExecuteFirewallScan(ctx context.Context, scanner scannerDomain.ScannerDomain, scanJobID int64) error {
 	log.Printf("[FirewallScanner] Starting firewall scan for scanner ID: %d, job ID: %d", scanner.ID, scanJobID)
 	log.Printf("[FirewallScanner] Scanner details: IP=%s, Port=%s, API Key length=%d",
@@ -139,8 +143,8 @@ func (r *FirewallRunner) ExecuteFirewallScan(ctx context.Context, scanner scanne
 		return fmt.Errorf("failed to load firewall data: %w", err)
 	}
 
-	// Process and store data as assets
-	return r.processFirewallDataAsAssets(scanCtx, extractor, scanJobID)
+	// Process and store data in firewall tables
+	return r.processFirewallData(scanCtx, extractor, scanJobID)
 }
 
 // FortigateClient represents a FortiGate API client
@@ -170,7 +174,7 @@ func (r *FirewallRunner) createFortigateClient(ip, port, apiKey string) *Fortiga
 		httpClient: client,
 		baseURL:    baseURL,
 		apiKey:     apiKey,
-		authMethod: "bearer", 
+		authMethod: "bearer",
 	}
 }
 
@@ -467,166 +471,154 @@ func (fe *FortigateExtractor) parseGenericInterface(intfData json.RawMessage, in
 	return intf
 }
 
-// processFirewallDataAsAssets converts firewall interfaces to assets and stores them
-func (r *FirewallRunner) processFirewallDataAsAssets(ctx context.Context, extractor *FortigateExtractor, scanJobID int64) error {
-	log.Printf("[FirewallScanner] Processing firewall data as assets for job ID: %d", scanJobID)
+// processFirewallData converts firewall data and stores in firewall tables
+func (r *FirewallRunner) processFirewallData(ctx context.Context, extractor *FortigateExtractor, scanJobID int64) error {
+	log.Printf("[FirewallScanner] Processing firewall data for job ID: %d", scanJobID)
 
-	totalAssets := 0
-	assetsWithIPs := 0
-
-	// Process interfaces as network assets
-	for i, intf := range extractor.interfaces {
-		// Check for cancellation periodically
-		if i%10 == 0 && ctx.Err() == context.Canceled {
-			log.Printf("[FirewallScanner] Firewall scan was cancelled during interface processing for job ID: %d", scanJobID)
-			return context.Canceled
-		}
-
-		// Skip interfaces without names
-		if intf.Name == "" {
-			continue
-		}
-
-		// Create asset for this interface
-		asset := r.createAssetFromInterface(intf, extractor.scanner.IP, scanJobID)
-
-		// Store the asset
-		log.Printf("[FirewallScanner] Creating asset for interface: %s", intf.Name)
-		assetID, err := r.assetRepo.Create(ctx, asset)
-		if err != nil {
-			log.Printf("[FirewallScanner] Error creating asset for interface %s: %v", intf.Name, err)
-			continue
-		}
-
-		// Link the asset to the scan job
-		err = r.assetRepo.LinkAssetToScanJob(ctx, assetID, scanJobID)
-		if err != nil {
-			log.Printf("[FirewallScanner] Error linking asset to scan job: %v", err)
-			continue
-		}
-
-		log.Printf("[FirewallScanner] Successfully processed interface %s (Asset ID: %s)", intf.Name, assetID)
-		totalAssets++
-
-		if len(asset.AssetIPs) > 0 {
-			assetsWithIPs++
-		}
+	// Create or update firewall device
+	firewallID, err := r.firewallRepo.CreateOrUpdateFirewall(ctx, extractor.scanner.IP, "FortiGate-Device")
+	if err != nil {
+		log.Printf("[FirewallScanner] Error creating firewall device: %v", err)
+		return fmt.Errorf("failed to create firewall device: %w", err)
 	}
 
-	log.Printf("[FirewallScanner] Completed processing firewall data. Created %d assets, %d with IP addresses",
-		totalAssets, assetsWithIPs)
-	return nil
-}
-
-// createAssetFromInterface creates an asset from a firewall interface
-func (r *FirewallRunner) createAssetFromInterface(intf Interface, firewallIP string, scanJobID int64) assetDomain.AssetDomain {
-	// Create asset ID
-	assetID := uuid.New()
-
-	// Create asset name
-	assetName := fmt.Sprintf("%s-%s", firewallIP, intf.Name)
-	if intf.Description != "" {
-		assetName = fmt.Sprintf("%s (%s)", assetName, intf.Description)
-	}
-
-	// Create asset description
-	description := fmt.Sprintf("Firewall interface discovered by FortiGate scan (Job ID: %d). Type: %s, Status: %s",
-		scanJobID, intf.Type, intf.Status)
-
-	if intf.VDOM != "" {
-		description += fmt.Sprintf(", VDOM: %s", intf.VDOM)
-	}
-	if intf.Role != "" {
-		description += fmt.Sprintf(", Role: %s", intf.Role)
-	}
-
-	// Create base asset
-	asset := assetDomain.AssetDomain{
-		ID:          assetID,
-		Name:        assetName,
-		Hostname:    intf.Name,
-		Type:        "Network Interface",
-		Description: description,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-		AssetIPs:    make([]assetDomain.AssetIP, 0),
-	}
-
-	// Extract and add IP addresses
-	if intf.IP != "" && intf.IP != "0.0.0.0 0.0.0.0" && intf.IP != "0.0.0.0" {
-		// Parse primary IP
-		ip, _ := r.parseIPNetmask(intf.IP)
-		if ip != "" && r.isValidIPFormat(ip) {
-			macAddress := intf.MacAddr
-			if macAddress == "" {
-				macAddress = "Unknown"
+	// Convert zones data
+	zonesData := make([]storage.ZoneData, 0, len(extractor.zones))
+	for _, zone := range extractor.zones {
+		var interfaces []string
+		for _, intf := range zone.Interface {
+			if intf.InterfaceName != "" {
+				interfaces = append(interfaces, intf.InterfaceName)
+			} else if intf.Name != "" {
+				interfaces = append(interfaces, intf.Name)
 			}
-
-			asset.AssetIPs = append(asset.AssetIPs, assetDomain.AssetIP{
-				AssetID:    assetID.String(),
-				IP:         ip,
-				MACAddress: macAddress,
-			})
-			log.Printf("[FirewallScanner] Added primary IP %s with MAC %s for interface %s", ip, macAddress, intf.Name)
 		}
+
+		zonesData = append(zonesData, storage.ZoneData{
+			Name:        zone.Name,
+			Description: zone.Description,
+			Interfaces:  interfaces,
+		})
 	}
 
-	// Add secondary IPs
-	for _, secIP := range intf.SecondaryIP {
-		if secIP.IP != "" && secIP.IP != "0.0.0.0 0.0.0.0" && secIP.IP != "0.0.0.0" {
-			ip, _ := r.parseIPNetmask(secIP.IP)
-			if ip != "" && r.isValidIPFormat(ip) {
-				macAddress := intf.MacAddr
-				if macAddress == "" {
-					macAddress = "Unknown"
+	// Convert interfaces data
+	interfacesData := make([]storage.InterfaceData, 0, len(extractor.interfaces))
+	for _, intf := range extractor.interfaces {
+		// Find zone for this interface
+		var zoneName string
+		for _, zone := range extractor.zones {
+			for _, zoneIntf := range zone.Interface {
+				if zoneIntf.InterfaceName == intf.Name || zoneIntf.Name == intf.Name {
+					zoneName = zone.Name
+					break
 				}
+			}
+			if zoneName != "" {
+				break
+			}
+		}
 
-				asset.AssetIPs = append(asset.AssetIPs, assetDomain.AssetIP{
-					AssetID:    assetID.String(),
-					IP:         ip,
-					MACAddress: macAddress,
-				})
-				log.Printf("[FirewallScanner] Added secondary IP %s for interface %s", ip, intf.Name)
+		// Convert secondary IPs
+		var secondaryIPs []storage.SecondaryIPData
+		for _, secIP := range intf.SecondaryIP {
+			secondaryIPs = append(secondaryIPs, storage.SecondaryIPData{
+				ID:          secIP.ID,
+				IP:          secIP.IP,
+				Allowaccess: secIP.Allowaccess,
+			})
+		}
+
+		interfacesData = append(interfacesData, storage.InterfaceData{
+			Name:         intf.Name,
+			IP:           intf.IP,
+			Status:       intf.Status,
+			Description:  intf.Description,
+			MTU:          intf.MTU,
+			Speed:        intf.Speed,
+			Duplex:       intf.Duplex,
+			Type:         intf.Type,
+			VDOM:         intf.VDOM,
+			Mode:         intf.Mode,
+			Role:         intf.Role,
+			MacAddr:      intf.MacAddr,
+			Allowaccess:  intf.Allowaccess,
+			SecondaryIPs: secondaryIPs,
+			Zone:         zoneName,
+		})
+	}
+
+	// Convert policies data
+	policiesData := make([]storage.PolicyData, 0, len(extractor.policies))
+	for _, policy := range extractor.policies {
+		var srcIntf, dstIntf, srcAddr, dstAddr, service []string
+
+		for _, intf := range policy.SrcIntf {
+			srcIntf = append(srcIntf, intf.Name)
+		}
+		for _, intf := range policy.DstIntf {
+			dstIntf = append(dstIntf, intf.Name)
+		}
+		for _, addr := range policy.SrcAddr {
+			srcAddr = append(srcAddr, addr.Name)
+		}
+		for _, addr := range policy.DstAddr {
+			dstAddr = append(dstAddr, addr.Name)
+		}
+		for _, svc := range policy.Service {
+			service = append(service, svc.Name)
+		}
+
+		policiesData = append(policiesData, storage.PolicyData{
+			PolicyID: policy.PolicyID,
+			Name:     policy.Name,
+			SrcIntf:  srcIntf,
+			DstIntf:  dstIntf,
+			SrcAddr:  srcAddr,
+			DstAddr:  dstAddr,
+			Service:  service,
+			Action:   policy.Action,
+			Status:   policy.Status,
+			Schedule: policy.Schedule,
+		})
+	}
+
+	// Identify VLANs from interfaces
+	vlansData := make([]storage.VLANData, 0)
+	for _, intf := range extractor.interfaces {
+		if strings.Contains(intf.Name, ".") {
+			parts := strings.Split(intf.Name, ".")
+			if len(parts) == 2 {
+				if vlanID, err := net.ParseInt(parts[1], 10, 32); err == nil {
+					vlansData = append(vlansData, storage.VLANData{
+						VLANID:          int(vlanID),
+						VLANName:        fmt.Sprintf("VLAN_%d", vlanID),
+						ParentInterface: parts[0],
+						Description:     fmt.Sprintf("VLAN %d on %s", vlanID, parts[0]),
+					})
+				}
 			}
 		}
 	}
 
-	return asset
-}
-
-// parseIPNetmask parses IP and netmask from FortiGate format
-func (r *FirewallRunner) parseIPNetmask(ipString string) (string, string) {
-	if ipString == "" || ipString == "0.0.0.0 0.0.0.0" {
-		return "", ""
+	// Store all firewall data
+	firewallData := storage.FirewallData{
+		FirewallID: firewallID,
+		Zones:      zonesData,
+		Interfaces: interfacesData,
+		Policies:   policiesData,
+		VLANs:      vlansData,
 	}
 
-	parts := strings.Fields(ipString)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	if err := r.firewallRepo.StoreFirewallData(ctx, firewallData, scanJobID); err != nil {
+		log.Printf("[FirewallScanner] Error storing firewall data: %v", err)
+		return fmt.Errorf("failed to store firewall data: %w", err)
 	}
 
-	return ipString, ""
-}
+	log.Printf("[FirewallScanner] Successfully processed firewall data for job ID: %d", scanJobID)
+	log.Printf("[FirewallScanner] Stored: %d zones, %d interfaces, %d policies, %d VLANs",
+		len(zonesData), len(interfacesData), len(policiesData), len(vlansData))
 
-// isValidIPFormat validates if a string is a valid IPv4 address format
-func (r *FirewallRunner) isValidIPFormat(ip string) bool {
-	// Skip empty IPs
-	if ip == "" {
-		return false
-	}
-
-	// Parse IP to validate format
-	parsedIP := net.ParseIP(ip)
-	if parsedIP == nil {
-		return false
-	}
-
-	// Check if it's IPv4
-	if parsedIP.To4() == nil {
-		return false
-	}
-
-	return true
+	return nil
 }
 
 // CancelScan cancels a running scan job

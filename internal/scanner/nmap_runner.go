@@ -345,10 +345,3 @@ type Host struct {
 type Status struct {
 	State string `xml:"state,attr"`
 }
-
-// Address represents an address of a host
-type Address struct {
-	Name   string `json:"name"`
-	Subnet string `json:"subnet"`
-	Type   string `json:"type"`
-}
